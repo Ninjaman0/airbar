@@ -1002,7 +1002,7 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
         {/* Cart Summary */}
         {Object.keys(cart).length > 0 && (
           <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-            <h3 className="font-semibold text-gray-900 mb-4">Current Selection</h3>
+            <h3 className="font-semibold text-gray-900 mb-4">الاختيار الحالي</h3>
             <div className="space-y-2 mb-4">
               {Object.entries(cart).map(([itemId, quantity]) => {
                 const item = items.find(i => i.id === itemId);
