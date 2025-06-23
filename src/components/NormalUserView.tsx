@@ -615,7 +615,7 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
                   <tr>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">الصنف</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">الكميه</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total Price</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">السعر الإجمالي</th>
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
