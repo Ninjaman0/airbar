@@ -1024,7 +1024,7 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
                   className="bg-purple-600 hover:bg-purple-700 disabled:bg-purple-400 text-white font-semibold py-2 px-4 rounded-lg transition-colors flex items-center"
                 >
                   <Users className="h-4 w-4 mr-2" />
-                  Add to Customer
+                  إضافة إلى العميل
                 </button>
                 <button
                   onClick={confirmPurchase}
