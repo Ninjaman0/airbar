@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { 
   Plus, Edit, Trash2, Save, X, Package, DollarSign, 
-  TrendingUp, Calendar, Users, FileText, Settings, 
+  TrendingUp, Calendar, Users, FileText, Settings, Receipt, 
   Download, Eye, AlertCircle, CheckCircle, UserPlus
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
@@ -1284,9 +1284,9 @@ const AdminView: React.FC<AdminViewProps> = ({ section }) => {
       <div className="border-b border-gray-200">
         <nav className="-mb-px flex space-x-8">
           {[
-            { id: 'dashboard', name: 'لوحة التحكم', icon: TrendingUp },
-            { id: 'inventory', name: 'المخزون', icon: Package },
-            { id: 'shifts', name: 'سجل الورديات', icon: Calendar },
+            { id: 'dashboard', name: 'Dashboard', icon: TrendingUp },
+            { id: 'inventory', name: 'Inventory', icon: Package },
+            { id: 'shifts', name: 'Shifts History', icon: Calendar },
             { id: 'profit', name: 'Monthly Summary', icon: DollarSign },
             ...(section === 'supplement' ? [{ id: 'payments', name: 'Payments', icon: Receipt }] : []),
             { id: 'customers', name: 'Customers', icon: Users },
