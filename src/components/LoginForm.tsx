@@ -126,7 +126,7 @@ const LoginForm: React.FC = () => {
 
         <div className="mt-6 text-center">
           <p className="text-xs text-gray-500">
-            Air Gym bar system if you found it by mistake you you can fuck off :)
+            Air Gym bar system if you found it by mistake you can fuck off :)
           </p>
         </div>
       </div>
