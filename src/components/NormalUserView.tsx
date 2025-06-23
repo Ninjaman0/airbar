@@ -906,7 +906,7 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
             {activeShift.expenses.length > 0 && (
               <div className="mt-4 bg-white rounded-lg border border-green-200 overflow-hidden">
                 <div className="px-4 py-2 bg-green-100 border-b border-green-200">
-                  <h4 className="text-sm font-semibold text-green-800">Current Shift Expenses</h4>
+                  <h4 className="text-sm font-semibold text-green-800">مصروفات الوردية الحالية</h4>
                 </div>
                 <div className="overflow-x-auto">
                   <table className="min-w-full divide-y divide-gray-200">
