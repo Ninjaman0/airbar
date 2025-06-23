@@ -1016,7 +1016,7 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
               })}
             </div>
             <div className="border-t pt-4 flex justify-between items-center">
-              <span className="text-lg font-bold">الإجمالي: {getCartTotal()} EGP</span>
+              <span className="text-lg font-bold">الإجمالي: {getCartTotal()} جنيه</span>
               <div className="flex space-x-3">
                 <button
                   onClick={addToCustomer}
