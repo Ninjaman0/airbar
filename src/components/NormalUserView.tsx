@@ -724,7 +724,7 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
     return (
       <div className="space-y-6">
         <div className="bg-white rounded-lg shadow-sm p-6">
-          <h2 className="text-xl font-semibold text-gray-900 mb-4">End Shift - Inventory Check</h2>
+          <h2 className="text-xl font-semibold text-gray-900 mb-4">إنهاء الوردية - فحص المخزون</h2>
           
           <div className="space-y-4 mb-6">
             {items.map(item => (
