@@ -766,7 +766,7 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
               </div>
               <div className="mt-3">
                 <label className="block text-sm font-medium text-red-700 mb-1">
-                  Reason for discrepancy:
+                  سبب العجز؟:
                 </label>
                 <input
                   type="text"
