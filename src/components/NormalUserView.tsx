@@ -884,7 +884,7 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
                   className="bg-purple-600 hover:bg-purple-700 text-white px-3 py-1 rounded text-sm font-medium transition-colors flex items-center"
                 >
                   <Users className="h-4 w-4 mr-1" />
-                  Customers
+                  العملاء
                 </button>
                 <button
                   onClick={() => setShowExpenseModal(true)}
