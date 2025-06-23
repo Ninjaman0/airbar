@@ -773,7 +773,7 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
                   value={closeReason}
                   onChange={(e) => setCloseReason(e.target.value)}
                   className="w-full px-3 py-2 border border-red-300 rounded focus:ring-2 focus:ring-red-500 focus:border-transparent"
-                  placeholder="e.g., Missing items due to breakage"
+                  placeholder="e.g., Must write valid reason..."
                 />
               </div>
             </div>
