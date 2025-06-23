@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { 
   Plus, Minus, ShoppingCart, Clock, AlertCircle, CheckCircle, 
-  Play, DollarSign, Users, Receipt, Filter, X
+  Play, DollarSign, Users, Receipt, Filter, X, Trash2
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { Item, Shift, PurchaseItem, Customer, CustomerPurchase, Expense, Category } from '../types';
@@ -36,6 +36,10 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
   const [expenseAmount, setExpenseAmount] = useState<number>(0);
   const [expenseReason, setExpenseReason] = useState<string>('');
   const [customerTab, setCustomerTab] = useState<'today' | 'alltime'>('today');
+  const [partialPaymentAmount, setPartialPaymentAmount] = useState<number>(0);
+  const [showPartialPaymentModal, setShowPartialPaymentModal] = useState(false);
+  const [selectedCustomerForPayment, setSelectedCustomerForPayment] = useState<Customer | null>(null);
+  const [paymentType, setPaymentType] = useState<'today' | 'alltime'>('today');
 
   useEffect(() => {
     loadData();
@@ -291,30 +295,46 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
           remainingAmount -= purchase.totalAmount;
           paidPurchases.push(purchase);
           await db.saveCustomerPurchase(purchase);
+        } else {
+          // Partial payment - reduce the purchase amount
+          purchase.totalAmount -= remainingAmount;
+          remainingAmount = 0;
+          await db.saveCustomerPurchase(purchase);
         }
       }
 
-      // Add paid items to current shift if paying today's items
-      if (isToday && paidPurchases.length > 0) {
-        const newPurchases: PurchaseItem[] = [];
-        paidPurchases.forEach(purchase => {
-          newPurchases.push(...purchase.items);
-        });
-
-        activeShift.purchases.push(...newPurchases);
-        activeShift.totalAmount += (amount - remainingAmount);
-        await db.saveShift(activeShift);
-        setActiveShift({ ...activeShift });
-      } else {
-        // For all-time payments, just add cash to shift
-        activeShift.totalAmount += (amount - remainingAmount);
-        await db.saveShift(activeShift);
-        setActiveShift({ ...activeShift });
-      }
+      // Add paid amount to current shift
+      activeShift.totalAmount += (amount - remainingAmount);
+      await db.saveShift(activeShift);
+      setActiveShift({ ...activeShift });
 
       await loadData();
+      setShowPartialPaymentModal(false);
+      setPartialPaymentAmount(0);
+      setSelectedCustomerForPayment(null);
     } catch (error) {
       console.error('Failed to pay customer debt:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const removeExpenseFromShift = async (expenseId: string) => {
+    if (!activeShift || !confirm('Are you sure you want to remove this expense?')) return;
+
+    setIsLoading(true);
+    try {
+      const expense = activeShift.expenses.find(e => e.id === expenseId);
+      if (!expense) return;
+
+      // Remove expense from shift
+      activeShift.expenses = activeShift.expenses.filter(e => e.id !== expenseId);
+      activeShift.totalAmount += expense.amount; // Return money to cashier balance
+      
+      await db.saveShift(activeShift);
+      setActiveShift({ ...activeShift });
+    } catch (error) {
+      console.error('Failed to remove expense:', error);
     } finally {
       setIsLoading(false);
     }
@@ -362,13 +382,14 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
   const startEndShift = () => {
     if (!activeShift) return;
     
+    // Don't pre-fill any values - require manual entry
     const inputs: Record<string, number> = {};
     items.forEach(item => {
-      inputs[item.id] = item.currentAmount;
+      inputs[item.id] = 0; // Start with 0, not current amount
     });
     
     setInventoryInputs(inputs);
-    setCashInput(activeShift.totalAmount);
+    setCashInput(0); // Start with 0, not current amount
     setShowEndShift(true);
     setEndShiftError('');
     setCloseReason('');
@@ -557,11 +578,16 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
               <h3 className="text-lg font-semibold text-gray-900">Today's Items</h3>
               {todayTotal > 0 && (
                 <button
-                  onClick={() => payCustomerDebt(selectedCustomer, todayTotal, true)}
+                  onClick={() => {
+                    setSelectedCustomerForPayment(selectedCustomer);
+                    setPaymentType('today');
+                    setPartialPaymentAmount(todayTotal);
+                    setShowPartialPaymentModal(true);
+                  }}
                   disabled={isLoading}
                   className="bg-green-600 hover:bg-green-700 disabled:bg-green-400 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
                 >
-                  Pay {todayTotal} EGP
+                  Pay Debt
                 </button>
               )}
             </div>
@@ -603,11 +629,16 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
               <h3 className="text-lg font-semibold text-gray-900">All-Time Items</h3>
               {allTimeTotal > 0 && (
                 <button
-                  onClick={() => payCustomerDebt(selectedCustomer, allTimeTotal, false)}
+                  onClick={() => {
+                    setSelectedCustomerForPayment(selectedCustomer);
+                    setPaymentType('alltime');
+                    setPartialPaymentAmount(allTimeTotal);
+                    setShowPartialPaymentModal(true);
+                  }}
                   disabled={isLoading}
                   className="bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
                 >
-                  Pay {allTimeTotal} EGP
+                  Pay Debt
                 </button>
               )}
             </div>
@@ -689,10 +720,9 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
             <input
               type="number"
               value={cashInput}
-              onChange={(e) => setCashInput(parseFloat(e.target.value) || 0)}
+              onChange={(e) => setCashInput(parseInt(e.target.value) || 0)}
               className="w-32 px-3 py-2 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               min="0"
-              step="0.01"
             />
           </div>
 
@@ -839,9 +869,56 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
                 </button>
               </div>
             </div>
+            
+            {/* Current Shift Expenses */}
             {activeShift.expenses.length > 0 && (
-              <div className="text-sm text-green-700">
-                Expenses: {activeShift.expenses.reduce((sum, exp) => sum + exp.amount, 0)} EGP
+              <div className="mt-4 bg-white rounded-lg border border-green-200 overflow-hidden">
+                <div className="px-4 py-2 bg-green-100 border-b border-green-200">
+                  <h4 className="text-sm font-semibold text-green-800">Current Shift Expenses</h4>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="min-w-full divide-y divide-gray-200">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Amount</th>
+                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Reason</th>
+                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Timestamp</th>
+                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="bg-white divide-y divide-gray-200">
+                      {activeShift.expenses.map(expense => (
+                        <tr key={expense.id}>
+                          <td className="px-4 py-2 whitespace-nowrap text-sm font-medium text-gray-900">
+                            {expense.amount} EGP
+                          </td>
+                          <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-900">
+                            {expense.reason}
+                          </td>
+                          <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-900">
+                            {new Date(expense.timestamp).toLocaleString()}
+                          </td>
+                          <td className="px-4 py-2 whitespace-nowrap text-sm font-medium">
+                            <button
+                              onClick={() => removeExpenseFromShift(expense.id)}
+                              className="text-red-600 hover:text-red-900 flex items-center"
+                              title="Remove expense and return money to cashier"
+                            >
+                              <Trash2 className="h-4 w-4 mr-1" />
+                              Remove
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+            
+            {activeShift.expenses.length > 0 && (
+              <div className="text-sm text-green-700 mt-2">
+                Total Expenses: {activeShift.expenses.reduce((sum, exp) => sum + exp.amount, 0)} EGP
               </div>
             )}
           </div>
@@ -870,6 +947,7 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
                 <div className="flex items-center space-x-3">
                   <button
                     onClick={() => updateCartItem(item.id, -1)}
+                    
                     disabled={!cart[item.id]}
                     className="p-1 rounded-full bg-gray-100 hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                   >
@@ -1009,6 +1087,62 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
           </div>
         )}
 
+        {/* Partial Payment Modal */}
+        {showPartialPaymentModal && selectedCustomerForPayment && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-lg p-6 w-full max-w-md">
+              <h3 className="text-lg font-semibold mb-4">Customer Payment</h3>
+              
+              <div className="space-y-4">
+                <div>
+                  <p className="text-sm text-gray-600 mb-2">Customer: <span className="font-medium">{selectedCustomerForPayment.name}</span></p>
+                  <p className="text-sm text-gray-600 mb-4">
+                    {paymentType === 'today' ? "Today's" : "All-time"} debt: {
+                      paymentType === 'today' 
+                        ? customerPurchases.filter(cp => cp.customerId === selectedCustomerForPayment.id && !cp.isPaid && cp.shiftId === activeShift?.id).reduce((sum, cp) => sum + cp.totalAmount, 0)
+                        : customerPurchases.filter(cp => cp.customerId === selectedCustomerForPayment.id && !cp.isPaid).reduce((sum, cp) => sum + cp.totalAmount, 0)
+                    } EGP
+                  </p>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Payment Amount (EGP)</label>
+                  <input
+                    type="number"
+                    value={partialPaymentAmount}
+                    onChange={(e) => setPartialPaymentAmount(parseInt(e.target.value) || 0)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    min="0"
+                    max={paymentType === 'today' 
+                      ? customerPurchases.filter(cp => cp.customerId === selectedCustomerForPayment.id && !cp.isPaid && cp.shiftId === activeShift?.id).reduce((sum, cp) => sum + cp.totalAmount, 0)
+                      : customerPurchases.filter(cp => cp.customerId === selectedCustomerForPayment.id && !cp.isPaid).reduce((sum, cp) => sum + cp.totalAmount, 0)
+                    }
+                  />
+                </div>
+              </div>
+
+              <div className="flex space-x-3 mt-6">
+                <button
+                  onClick={() => payCustomerDebt(selectedCustomerForPayment, partialPaymentAmount, paymentType === 'today')}
+                  disabled={isLoading || partialPaymentAmount <= 0}
+                  className="flex-1 bg-green-600 hover:bg-green-700 disabled:bg-green-400 text-white font-semibold py-2 px-4 rounded-lg transition-colors"
+                >
+                  {isLoading ? 'Processing...' : 'Confirm Payment'}
+                </button>
+                <button
+                  onClick={() => {
+                    setShowPartialPaymentModal(false);
+                    setPartialPaymentAmount(0);
+                    setSelectedCustomerForPayment(null);
+                  }}
+                  className="px-6 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Expense Modal */}
         {showExpenseModal && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
@@ -1021,11 +1155,10 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
                   <input
                     type="number"
                     value={expenseAmount}
-                    onChange={(e) => setExpenseAmount(parseFloat(e.target.value) || 0)}
+                    onChange={(e) => setExpenseAmount(parseInt(e.target.value) || 0)}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                     min="0"
                     max={activeShift?.totalAmount || 0}
-                    step="0.01"
                   />
                   {activeShift && (
                     <p className="text-xs text-gray-500 mt-1">
