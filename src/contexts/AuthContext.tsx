@@ -35,7 +35,20 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         // Check for stored user session
         const storedUser = localStorage.getItem('currentUser');
         if (storedUser) {
-          setUser(JSON.parse(storedUser));
+          try {
+            const parsedUser = JSON.parse(storedUser);
+            // Verify user still exists in database
+            const dbUser = await db.getUserByUsername(parsedUser.username);
+            if (dbUser && dbUser.id === parsedUser.id) {
+              setUser(parsedUser);
+            } else {
+              // User no longer exists or has been modified, clear session
+              localStorage.removeItem('currentUser');
+            }
+          } catch (error) {
+            console.error('Error parsing stored user:', error);
+            localStorage.removeItem('currentUser');
+          }
         }
 
         // Create default admin user if none exists
@@ -49,6 +62,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
             createdAt: new Date()
           };
           await db.createUser(defaultAdmin);
+          console.log('Default admin user created');
         }
 
         // Create default normal user if none exists
@@ -62,6 +76,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
             createdAt: new Date()
           };
           await db.createUser(defaultUser);
+          console.log('Default normal user created');
         }
 
         // Initialize default items if none exist
@@ -77,83 +92,102 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   }, []);
 
   const initializeDefaultItems = async () => {
-    const storeItems = await db.getItemsBySection('store');
-    if (storeItems.length === 0) {
-      const defaultStoreItems = [
-        {
-          id: 'store-water',
-          name: 'Bottle of Water',
-          sellPrice: 10,
-          costPrice: 7,
-          currentAmount: 100,
-          section: 'store' as const,
-          createdAt: new Date(),
-          updatedAt: new Date()
-        },
-        {
-          id: 'store-pepsi',
-          name: 'Pepsi',
-          sellPrice: 15,
-          costPrice: 10,
-          currentAmount: 50,
-          section: 'store' as const,
-          createdAt: new Date(),
-          updatedAt: new Date()
-        },
-        {
-          id: 'store-redbull',
-          name: 'Red Bull',
-          sellPrice: 25,
-          costPrice: 18,
-          currentAmount: 30,
-          section: 'store' as const,
-          createdAt: new Date(),
-          updatedAt: new Date()
+    try {
+      const storeItems = await db.getItemsBySection('store');
+      if (storeItems.length === 0) {
+        const defaultStoreItems = [
+          {
+            id: 'store-water',
+            name: 'Bottle of Water',
+            sellPrice: 10,
+            costPrice: 7,
+            currentAmount: 100,
+            section: 'store' as const,
+            createdAt: new Date(),
+            updatedAt: new Date()
+          },
+          {
+            id: 'store-pepsi',
+            name: 'Pepsi',
+            sellPrice: 15,
+            costPrice: 10,
+            currentAmount: 50,
+            section: 'store' as const,
+            createdAt: new Date(),
+            updatedAt: new Date()
+          },
+          {
+            id: 'store-redbull',
+            name: 'Red Bull',
+            sellPrice: 25,
+            costPrice: 18,
+            currentAmount: 30,
+            section: 'store' as const,
+            createdAt: new Date(),
+            updatedAt: new Date()
+          }
+        ];
+
+        for (const item of defaultStoreItems) {
+          await db.saveItem(item);
         }
-      ];
-
-      for (const item of defaultStoreItems) {
-        await db.saveItem(item);
+        console.log('Default store items created');
       }
-    }
 
-    const supplementItems = await db.getItemsBySection('supplement');
-    if (supplementItems.length === 0) {
-      const defaultSupplementItems = [
-        {
-          id: 'supp-protein',
-          name: 'Protein Powder',
-          sellPrice: 800,
-          costPrice: 600,
-          currentAmount: 10,
-          section: 'supplement' as const,
-          createdAt: new Date(),
-          updatedAt: new Date()
-        },
-        {
-          id: 'supp-creatine',
-          name: 'Creatine',
-          sellPrice: 300,
-          costPrice: 200,
-          currentAmount: 15,
-          section: 'supplement' as const,
-          createdAt: new Date(),
-          updatedAt: new Date()
+      const supplementItems = await db.getItemsBySection('supplement');
+      if (supplementItems.length === 0) {
+        const defaultSupplementItems = [
+          {
+            id: 'supp-protein',
+            name: 'Protein Powder',
+            sellPrice: 800,
+            costPrice: 600,
+            currentAmount: 10,
+            section: 'supplement' as const,
+            createdAt: new Date(),
+            updatedAt: new Date()
+          },
+          {
+            id: 'supp-creatine',
+            name: 'Creatine',
+            sellPrice: 300,
+            costPrice: 200,
+            currentAmount: 15,
+            section: 'supplement' as const,
+            createdAt: new Date(),
+            updatedAt: new Date()
+          }
+        ];
+
+        for (const item of defaultSupplementItems) {
+          await db.saveItem(item);
         }
-      ];
-
-      for (const item of defaultSupplementItems) {
-        await db.saveItem(item);
+        console.log('Default supplement items created');
       }
+    } catch (error) {
+      console.error('Failed to initialize default items:', error);
     }
   };
 
   const login = async (username: string, password: string): Promise<boolean> => {
+    if (!username.trim() || !password.trim()) {
+      return false;
+    }
+
     try {
-      const user = await db.getUserByUsername(username);
-      if (user && user.password === password) {
-        setUser(user);
-        localStorage.setItem('currentUser', JSON.stringify(user));
+      const dbUser = await db.getUserByUsername(username.trim());
+      if (dbUser && dbUser.password === password) {
+        // Create a clean user object without sensitive data for storage
+        const userForStorage: User = {
+          id: dbUser.id,
+          username: dbUser.username,
+          password: dbUser.password, // Keep password for session validation
+          role: dbUser.role,
+          createdAt: dbUser.createdAt
+        };
+        
+        setUser(userForStorage);
+        localStorage.setItem('currentUser', JSON.stringify(userForStorage));
         return true;
       }
       return false;

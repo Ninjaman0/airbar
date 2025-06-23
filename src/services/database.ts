@@ -5,32 +5,40 @@ import {
 
 class DatabaseService {
   private dbName = 'StoreInventoryDB';
-  private version = 3;
+  private version = 4; // Incremented version for schema updates
   private db: IDBDatabase | null = null;
 
   async init(): Promise<void> {
     return new Promise((resolve, reject) => {
       const request = indexedDB.open(this.dbName, this.version);
 
-      request.onerror = () => reject(request.error);
+      request.onerror = () => {
+        console.error('Database failed to open:', request.error);
+        reject(request.error);
+      };
+      
       request.onsuccess = () => {
         this.db = request.result;
+        console.log('Database opened successfully');
         resolve();
       };
 
       request.onupgradeneeded = (event) => {
         const db = (event.target as IDBOpenDBRequest).result;
+        console.log('Database upgrade needed, current version:', event.oldVersion);
 
         // Users store
         if (!db.objectStoreNames.contains('users')) {
           const userStore = db.createObjectStore('users', { keyPath: 'id' });
           userStore.createIndex('username', 'username', { unique: true });
+          console.log('Created users store');
         }
 
         // Categories store
         if (!db.objectStoreNames.contains('categories')) {
           const categoryStore = db.createObjectStore('categories', { keyPath: 'id' });
           categoryStore.createIndex('section', 'section');
+          console.log('Created categories store');
         }
 
         // Items store
@@ -38,12 +46,14 @@ class DatabaseService {
           const itemStore = db.createObjectStore('items', { keyPath: 'id' });
           itemStore.createIndex('section', 'section');
           itemStore.createIndex('categoryId', 'categoryId');
+          console.log('Created items store');
         }
 
         // Customers store
         if (!db.objectStoreNames.contains('customers')) {
           const customerStore = db.createObjectStore('customers', { keyPath: 'id' });
           customerStore.createIndex('section', 'section');
+          console.log('Created customers store');
         }
 
         // Customer purchases store
@@ -52,6 +62,7 @@ class DatabaseService {
           customerPurchaseStore.createIndex('customerId', 'customerId');
           customerPurchaseStore.createIndex('section', 'section');
           customerPurchaseStore.createIndex('isPaid', 'isPaid');
+          console.log('Created customerPurchases store');
         }
 
         // Expenses store
@@ -59,12 +70,14 @@ class DatabaseService {
           const expenseStore = db.createObjectStore('expenses', { keyPath: 'id' });
           expenseStore.createIndex('shiftId', 'shiftId');
           expenseStore.createIndex('section', 'section');
+          console.log('Created expenses store');
         }
 
         // Shift edits store
         if (!db.objectStoreNames.contains('shiftEdits')) {
           const shiftEditStore = db.createObjectStore('shiftEdits', { keyPath: 'id' });
           shiftEditStore.createIndex('shiftId', 'shiftId');
+          console.log('Created shiftEdits store');
         }
 
         // Admin logs store
@@ -73,6 +86,7 @@ class DatabaseService {
           adminLogStore.createIndex('timestamp', 'timestamp');
           adminLogStore.createIndex('adminName', 'adminName');
           adminLogStore.createIndex('section', 'section');
+          console.log('Created adminLogs store');
         }
 
         // Shifts store
@@ -81,67 +95,95 @@ class DatabaseService {
           shiftStore.createIndex('status', 'status');
           shiftStore.createIndex('section', 'section');
           shiftStore.createIndex('startTime', 'startTime');
+          console.log('Created shifts store');
         }
 
         // Supplies store
         if (!db.objectStoreNames.contains('supplies')) {
           const supplyStore = db.createObjectStore('supplies', { keyPath: 'id' });
           supplyStore.createIndex('section', 'section');
+          console.log('Created supplies store');
         }
 
         // Payments store
         if (!db.objectStoreNames.contains('payments')) {
           db.createObjectStore('payments', { keyPath: 'id' });
+          console.log('Created payments store');
         }
 
         // Daily summaries store
         if (!db.objectStoreNames.contains('dailySummaries')) {
           const dailyStore = db.createObjectStore('dailySummaries', { keyPath: 'date' });
           dailyStore.createIndex('section', 'section');
+          console.log('Created dailySummaries store');
         }
 
         // Monthly summaries store
         if (!db.objectStoreNames.contains('monthlySummaries')) {
           const monthlyStore = db.createObjectStore('monthlySummaries', { keyPath: 'month' });
           monthlyStore.createIndex('section', 'section');
+          console.log('Created monthlySummaries store');
         }
 
         // Supplement debt store
         if (!db.objectStoreNames.contains('supplementDebt')) {
           db.createObjectStore('supplementDebt', { keyPath: 'id' });
+          console.log('Created supplementDebt store');
         }
 
         // Settings store
         if (!db.objectStoreNames.contains('settings')) {
           db.createObjectStore('settings', { keyPath: 'key' });
+          console.log('Created settings store');
         }
       };
     });
   }
 
   private async getStore(storeName: string, mode: IDBTransactionMode = 'readonly'): Promise<IDBObjectStore> {
-    if (!this.db) throw new Error('Database not initialized');
-    const transaction = this.db.transaction([storeName], mode);
-    return transaction.objectStore(storeName);
+    if (!this.db) {
+      throw new Error('Database not initialized. Call init() first.');
+    }
+    
+    try {
+      const transaction = this.db.transaction([storeName], mode);
+      return transaction.objectStore(storeName);
+    } catch (error) {
+      console.error(`Failed to get store ${storeName}:`, error);
+      throw error;
+    }
   }
 
   // User operations
   async createUser(user: User): Promise<void> {
     const store = await this.getStore('users', 'readwrite');
-    await new Promise((resolve, reject) => {
+    return new Promise((resolve, reject) => {
       const request = store.put(user);
-      request.onsuccess = () => resolve(request.result);
-      request.onerror = () => reject(request.error);
+      request.onsuccess = () => {
+        console.log('User created successfully:', user.username);
+        resolve();
+      };
+      request.onerror = () => {
+        console.error('Failed to create user:', request.error);
+        reject(request.error);
+      };
     });
   }
 
   async getUserByUsername(username: string): Promise<User | null> {
+    if (!username) return null;
+    
     const store = await this.getStore('users');
     const index = store.index('username');
     return new Promise((resolve, reject) => {
       const request = index.get(username);
-      request.onsuccess = () => resolve(request.result || null);
-      request.onerror = () => reject(request.error);
+      request.onsuccess = () => {
+        resolve(request.result || null);
+      };
+      request.onerror = () => {
+        console.error('Failed to get user by username:', request.error);
+        reject(request.error);
+      };
     });
   }
 
@@ -149,35 +191,50 @@ class DatabaseService {
     const store = await this.getStore('users');
     return new Promise((resolve, reject) => {
       const request = store.getAll();
-      request.onsuccess = () => resolve(request.result);
-      request.onerror = () => reject(request.error);
+      request.onsuccess = () => resolve(request.result || []);
+      request.onerror = () => {
+        console.error('Failed to get all users:', request.error);
+        reject(request.error);
+      };
     });
   }
 
   async updateUser(user: User): Promise<void> {
     const store = await this.getStore('users', 'readwrite');
-    await new Promise((resolve, reject) => {
+    return new Promise((resolve, reject) => {
       const request = store.put(user);
-      request.onsuccess = () => resolve(request.result);
-      request.onerror = () => reject(request.error);
+      request.onsuccess = () => {
+        console.log('User updated successfully:', user.username);
+        resolve();
+      };
+      request.onerror = () => {
+        console.error('Failed to update user:', request.error);
+        reject(request.error);
+      };
     });
   }
 
   async deleteUser(id: string): Promise<void> {
     const store = await this.getStore('users', 'readwrite');
-    await new Promise((resolve, reject) => {
+    return new Promise((resolve, reject) => {
       const request = store.delete(id);
-      request.onsuccess = () => resolve(request.result);
-      request.onerror = () => reject(request.error);
+      request.onsuccess = () => {
+        console.log('User deleted successfully:', id);
+        resolve();
+      };
+      request.onerror = () => {
+        console.error('Failed to delete user:', request.error);
+        reject(request.error);
+      };
     });
   }
 
   // Admin log operations
   async saveAdminLog(log: AdminLog): Promise<void> {
     const store = await this.getStore('adminLogs', 'readwrite');
-    await new Promise((resolve, reject) => {
+    return new Promise((resolve, reject) => {
       const request = store.put(log);
-      request.onsuccess = () => resolve(request.result);
+      request.onsuccess = () => resolve();
       request.onerror = () => reject(request.error);
     });
   }
@@ -199,9 +256,9 @@ class DatabaseService {
   // Category operations
   async saveCategory(category: Category): Promise<void> {
     const store = await this.getStore('categories', 'readwrite');
-    await new Promise((resolve, reject) => {
+    return new Promise((resolve, reject) => {
       const request = store.put(category);
-      request.onsuccess = () => resolve(request.result);
+      request.onsuccess = () => resolve();
       request.onerror = () => reject(request.error);
     });
   }
@@ -211,16 +268,16 @@ class DatabaseService {
     const index = store.index('section');
     return new Promise((resolve, reject) => {
       const request = index.getAll(section);
-      request.onsuccess = () => resolve(request.result);
+      request.onsuccess = () => resolve(request.result || []);
       request.onerror = () => reject(request.error);
     });
   }
 
   async deleteCategory(id: string): Promise<void> {
     const store = await this.getStore('categories', 'readwrite');
-    await new Promise((resolve, reject) => {
+    return new Promise((resolve, reject) => {
       const request = store.delete(id);
-      request.onsuccess = () => resolve(request.result);
+      request.onsuccess = () => resolve();
       request.onerror = () => reject(request.error);
     });
   }
@@ -228,9 +285,9 @@ class DatabaseService {
   // Item operations
   async saveItem(item: Item): Promise<void> {
     const store = await this.getStore('items', 'readwrite');
-    await new Promise((resolve, reject) => {
+    return new Promise((resolve, reject) => {
       const request = store.put(item);
-      request.onsuccess = () => resolve(request.result);
+      request.onsuccess = () => resolve();
       request.onerror = () => reject(request.error);
     });
   }
@@ -240,7 +297,7 @@ class DatabaseService {
     const index = store.index('section');
     return new Promise((resolve, reject) => {
       const request = index.getAll(section);
-      request.onsuccess = () => resolve(request.result);
+      request.onsuccess = () => resolve(request.result || []);
       request.onerror = () => reject(request.error);
     });
   }
@@ -256,9 +313,9 @@ class DatabaseService {
 
   async deleteItem(id: string): Promise<void> {
     const store = await this.getStore('items', 'readwrite');
-    await new Promise((resolve, reject) => {
+    return new Promise((resolve, reject) => {
       const request = store.delete(id);
-      request.onsuccess = () => resolve(request.result);
+      request.onsuccess = () => resolve();
       request.onerror = () => reject(request.error);
     });
   }
@@ -266,9 +323,9 @@ class DatabaseService {
   // Customer operations
   async saveCustomer(customer: Customer): Promise<void> {
     const store = await this.getStore('customers', 'readwrite');
-    await new Promise((resolve, reject) => {
+    return new Promise((resolve, reject) => {
       const request = store.put(customer);
-      request.onsuccess = () => resolve(request.result);
+      request.onsuccess = () => resolve();
       request.onerror = () => reject(request.error);
     });
   }
@@ -278,7 +335,7 @@ class DatabaseService {
     const index = store.index('section');
     return new Promise((resolve, reject) => {
       const request = index.getAll(section);
-      request.onsuccess = () => resolve(request.result);
+      request.onsuccess = () => resolve(request.result || []);
       request.onerror = () => reject(request.error);
     });
   }
@@ -286,9 +343,9 @@ class DatabaseService {
   // Customer purchase operations
   async saveCustomerPurchase(purchase: CustomerPurchase): Promise<void> {
     const store = await this.getStore('customerPurchases', 'readwrite');
-    await new Promise((resolve, reject) => {
+    return new Promise((resolve, reject) => {
       const request = store.put(purchase);
-      request.onsuccess = () => resolve(request.result);
+      request.onsuccess = () => resolve();
       request.onerror = () => reject(request.error);
     });
   }
@@ -298,7 +355,7 @@ class DatabaseService {
     const index = store.index('customerId');
     return new Promise((resolve, reject) => {
       const request = index.getAll(customerId);
-      request.onsuccess = () => resolve(request.result);
+      request.onsuccess = () => resolve(request.result || []);
       request.onerror = () => reject(request.error);
     });
   }
@@ -318,9 +375,9 @@ class DatabaseService {
   // Expense operations
   async saveExpense(expense: Expense): Promise<void> {
     const store = await this.getStore('expenses', 'readwrite');
-    await new Promise((resolve, reject) => {
+    return new Promise((resolve, reject) => {
       const request = store.put(expense);
-      request.onsuccess = () => resolve(request.result);
+      request.onsuccess = () => resolve();
       request.onerror = () => reject(request.error);
     });
   }
@@ -330,7 +387,7 @@ class DatabaseService {
     const index = store.index('shiftId');
     return new Promise((resolve, reject) => {
       const request = index.getAll(shiftId);
-      request.onsuccess = () => resolve(request.result);
+      request.onsuccess = () => resolve(request.result || []);
       request.onerror = () => reject(request.error);
     });
   }
@@ -338,9 +395,9 @@ class DatabaseService {
   // Shift edit operations
   async saveShiftEdit(edit: ShiftEdit): Promise<void> {
     const store = await this.getStore('shiftEdits', 'readwrite');
-    await new Promise((resolve, reject) => {
+    return new Promise((resolve, reject) => {
       const request = store.put(edit);
-      request.onsuccess = () => resolve(request.result);
+      request.onsuccess = () => resolve();
       request.onerror = () => reject(request.error);
     });
   }
@@ -350,7 +407,7 @@ class DatabaseService {
     const index = store.index('shiftId');
     return new Promise((resolve, reject) => {
       const request = index.getAll(shiftId);
-      request.onsuccess = () => resolve(request.result);
+      request.onsuccess = () => resolve(request.result || []);
       request.onerror = () => reject(request.error);
     });
   }
@@ -358,9 +415,9 @@ class DatabaseService {
   // Shift operations
   async saveShift(shift: Shift): Promise<void> {
     const store = await this.getStore('shifts', 'readwrite');
-    await new Promise((resolve, reject) => {
+    return new Promise((resolve, reject) => {
       const request = store.put(shift);
-      request.onsuccess = () => resolve(request.result);
+      request.onsuccess = () => resolve();
       request.onerror = () => reject(request.error);
     });
   }
@@ -393,9 +450,9 @@ class DatabaseService {
   // Supply operations
   async saveSupply(supply: Supply): Promise<void> {
     const store = await this.getStore('supplies', 'readwrite');
-    await new Promise((resolve, reject) => {
+    return new Promise((resolve, reject) => {
       const request = store.put(supply);
-      request.onsuccess = () => resolve(request.result);
+      request.onsuccess = () => resolve();
       request.onerror = () => reject(request.error);
     });
   }
@@ -405,7 +462,7 @@ class DatabaseService {
     const index = store.index('section');
     return new Promise((resolve, reject) => {
       const request = index.getAll(section);
-      request.onsuccess = () => resolve(request.result);
+      request.onsuccess = () => resolve(request.result || []);
       request.onerror = () => reject(request.error);
     });
   }
@@ -413,9 +470,9 @@ class DatabaseService {
   // Payment operations
   async savePayment(payment: Payment): Promise<void> {
     const store = await this.getStore('payments', 'readwrite');
-    await new Promise((resolve, reject) => {
+    return new Promise((resolve, reject) => {
       const request = store.put(payment);
-      request.onsuccess = () => resolve(request.result);
+      request.onsuccess = () => resolve();
       request.onerror = () => reject(request.error);
     });
   }
@@ -424,7 +481,7 @@ class DatabaseService {
     const store = await this.getStore('payments');
     return new Promise((resolve, reject) => {
       const request = store.getAll();
-      request.onsuccess = () => resolve(request.result);
+      request.onsuccess = () => resolve(request.result || []);
       request.onerror = () => reject(request.error);
     });
   }
@@ -432,9 +489,9 @@ class DatabaseService {
   // Daily summary operations
   async saveDailySummary(summary: DailySummary): Promise<void> {
     const store = await this.getStore('dailySummaries', 'readwrite');
-    await new Promise((resolve, reject) => {
+    return new Promise((resolve, reject) => {
       const request = store.put(summary);
-      request.onsuccess = () => resolve(request.result);
+      request.onsuccess = () => resolve();
       request.onerror = () => reject(request.error);
     });
   }
@@ -451,9 +508,9 @@ class DatabaseService {
   // Monthly summary operations
   async saveMonthlySummary(summary: MonthlySummary): Promise<void> {
     const store = await this.getStore('monthlySummaries', 'readwrite');
-    await new Promise((resolve, reject) => {
+    return new Promise((resolve, reject) => {
       const request = store.put(summary);
-      request.onsuccess = () => resolve(request.result);
+      request.onsuccess = () => resolve();
       request.onerror = () => reject(request.error);
     });
   }
@@ -472,7 +529,7 @@ class DatabaseService {
     const index = store.index('section');
     return new Promise((resolve, reject) => {
       const request = index.getAll(section);
-      request.onsuccess = () => resolve(request.result);
+      request.onsuccess = () => resolve(request.result || []);
       request.onerror = () => reject(request.error);
     });
   }
@@ -480,9 +537,9 @@ class DatabaseService {
   // Supplement debt operations
   async saveSupplementDebt(debt: SupplementDebt): Promise<void> {
     const store = await this.getStore('supplementDebt', 'readwrite');
-    await new Promise((resolve, reject) => {
+    return new Promise((resolve, reject) => {
       const request = store.put({ id: 'current', ...debt });
-      request.onsuccess = () => resolve(request.result);
+      request.onsuccess = () => resolve();
       request.onerror = () => reject(request.error);
     });
   }
@@ -507,9 +564,9 @@ class DatabaseService {
   // Settings operations
   async saveSetting(key: string, value: any): Promise<void> {
     const store = await this.getStore('settings', 'readwrite');
-    await new Promise((resolve, reject) => {
+    return new Promise((resolve, reject) => {
       const request = store.put({ key, value });
-      request.onsuccess = () => resolve(request.result);
+      request.onsuccess = () => resolve();
       request.onerror = () => reject(request.error);
     });
   }

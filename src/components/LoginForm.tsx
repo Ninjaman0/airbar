@@ -1,26 +1,61 @@
 import React, { useState } from 'react';
-import { LogIn, User, Lock } from 'lucide-react';
+import { LogIn, User, Lock, Eye, EyeOff } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
 const LoginForm: React.FC = () => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const { login } = useAuth();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    
+    // Clear previous errors
+    setError('');
+    
+    // Validate inputs
+    if (!username.trim()) {
+      setError('Please enter your username');
+      return;
+    }
+    
+    if (!password.trim()) {
+      setError('Please enter your password');
+      return;
+    }
+
+    setIsLoading(true);
+
+    try {
+      const success = await login(username.trim(), password);
+      if (!success) {
+        setError('Invalid username or password. Please try again.');
+      }
+    } catch (err) {
+      console.error('Login error:', err);
+      setError('Login failed. Please check your connection and try again.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleDemoLogin = async (demoUsername: string, demoPassword: string) => {
+    setUsername(demoUsername);
+    setPassword(demoPassword);
     setError('');
     setIsLoading(true);
 
     try {
-      const success = await login(username, password);
+      const success = await login(demoUsername, demoPassword);
       if (!success) {
-        setError('Invalid username or password');
+        setError('Demo login failed. Please try manual login.');
       }
     } catch (err) {
-      setError('Login failed. Please try again.');
+      console.error('Demo login error:', err);
+      setError('Demo login failed. Please try manual login.');
     } finally {
       setIsLoading(false);
     }
@@ -38,10 +73,26 @@ const LoginForm: React.FC = () => {
         </div>
 
         <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
-          <h3 className="font-semibold text-blue-900 mb-2">Demo Credentials:</h3>
-          <div className="space-y-1 text-sm text-blue-800">
-            <div>Admin: <span className="font-mono">admin / admin123</span></div>
-            <div>User: <span className="font-mono">user / user123</span></div>
+          <h3 className="font-semibold text-blue-900 mb-3">Demo Credentials:</h3>
+          <div className="space-y-2">
+            <button
+              onClick={() => handleDemoLogin('admin', 'admin123')}
+              disabled={isLoading}
+              className="w-full text-left p-2 rounded bg-blue-100 hover:bg-blue-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <div className="text-sm text-blue-800">
+                <span className="font-semibold">Admin:</span> <span className="font-mono">admin / admin123</span>
+              </div>
+            </button>
+            <button
+              onClick={() => handleDemoLogin('user', 'user123')}
+              disabled={isLoading}
+              className="w-full text-left p-2 rounded bg-blue-100 hover:bg-blue-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <div className="text-sm text-blue-800">
+                <span className="font-semibold">User:</span> <span className="font-mono">user / user123</span>
+              </div>
+            </button>
           </div>
         </div>
 
@@ -59,7 +110,8 @@ const LoginForm: React.FC = () => {
                 onChange={(e) => setUsername(e.target.value)}
                 className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-colors"
                 placeholder="Enter your username"
-                required
+                disabled={isLoading}
+                autoComplete="username"
               />
             </div>
           </div>
@@ -71,14 +123,23 @@ const LoginForm: React.FC = () => {
             <div className="relative">
               <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
               <input
-                type="password"
+                type={showPassword ? 'text' : 'password'}
                 id="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-colors"
+                className="w-full pl-10 pr-12 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-colors"
                 placeholder="Enter your password"
-                required
+                disabled={isLoading}
+                autoComplete="current-password"
               />
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors"
+                disabled={isLoading}
+              >
+                {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
+              </button>
             </div>
           </div>
 
@@ -90,12 +151,25 @@ const LoginForm: React.FC = () => {
 
           <button
             type="submit"
-            disabled={isLoading}
-            className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white font-semibold py-3 px-4 rounded-lg transition-colors focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+            disabled={isLoading || !username.trim() || !password.trim()}
+            className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white font-semibold py-3 px-4 rounded-lg transition-colors focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:cursor-not-allowed"
           >
-            {isLoading ? 'Signing in...' : 'Sign In'}
+            {isLoading ? (
+              <div className="flex items-center justify-center">
+                <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white mr-2"></div>
+                Signing in...
+              </div>
+            ) : (
+              'Sign In'
+            )}
           </button>
         </form>
+
+        <div className="mt-6 text-center">
+          <p className="text-xs text-gray-500">
+            Secure login with encrypted credentials
+          </p>
+        </div>
       </div>
     </div>
   );
