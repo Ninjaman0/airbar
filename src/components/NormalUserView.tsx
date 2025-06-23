@@ -1090,7 +1090,7 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
                       value={newCustomerName}
                       onChange={(e) => setNewCustomerName(e.target.value)}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      placeholder="Enter customer name"
+                      placeholder="أدخل اسم العميل"
                     />
                   </div>
                 )}
