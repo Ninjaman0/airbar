@@ -27,8 +27,8 @@ interface AuthProviderProps {
 const FIXED_USERS: User[] = [
   {
     id: 'admin-1',
-    username: 'admin',
-    password: 'admin123',
+    username: 'karem',
+    password: 'ata121',
     role: 'admin',
     createdAt: new Date()
   },
