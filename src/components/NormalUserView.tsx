@@ -825,7 +825,7 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
                 : 'text-gray-600 hover:bg-gray-100'
             }`}
           >
-            All Items ({items.length})
+            جميع الاصناف ({items.length})
           </button>
           {categories.map(category => {
             const itemCount = items.filter(i => i.categoryId === category.id).length;
