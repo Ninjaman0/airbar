@@ -875,7 +875,7 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
               <div className="flex items-center">
                 <Clock className="h-5 w-5 text-green-600 mr-2" />
                 <span className="font-medium text-green-800">
-                  Active Shift - Total: {activeShift.totalAmount} EGP
+                  الورديةالحاليه - Total: {activeShift.totalAmount} EGP
                 </span>
               </div>
               <div className="flex space-x-2">
