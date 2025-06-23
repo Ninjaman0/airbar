@@ -509,7 +509,7 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
                 
                 <div className="space-y-2 text-sm text-gray-600">
                   <div>تم الإنشاء: {new Date(customer.createdAt).toLocaleDateString()}</div>
-                  <div>Total purchases: {customerPurchases.filter(cp => cp.customerId === customer.id).length}</div>
+                  <div>إجمالي المشتريات: {customerPurchases.filter(cp => cp.customerId === customer.id).length}</div>
                   <div>Outstanding debt: {customerDebt} EGP</div>
                 </div>
               </div>
