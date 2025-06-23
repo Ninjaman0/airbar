@@ -937,7 +937,7 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
                               title="مسح هذه المصاريف و اعادتها للكاشير"
                             >
                               <Trash2 className="h-4 w-4 mr-1" />
-                              Remove
+                              إزالة
                             </button>
                           </td>
                         </tr>
