@@ -324,7 +324,7 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
   };
 
   const removeExpenseFromShift = async (expenseId: string) => {
-    if (!activeShift || !confirm('Are you sure you want to remove this expense?')) return;
+    if (!activeShift || !confirm('هل أنت متأكد من رغبتك في إزالة هذا المصروف؟')) return;
 
     setIsLoading(true);
     try {
@@ -349,7 +349,7 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
 
     // Check if expense exceeds current cash
     if (expenseAmount > activeShift.totalAmount) {
-      alert('Expense amount exceeds current cashier balance!');
+      alert('المبلغ الذي تم ادخاله اكبر من النقديه المتوفره..');
       return;
     }
 
