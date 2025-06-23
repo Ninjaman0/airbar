@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { 
   Plus, Minus, ShoppingCart, Clock, AlertCircle, CheckCircle, 
-  Play, DollarSign, Users, Receipt, Filter, X, Trash2
+  Play, DollarSign, Users, Receipt, Dumbbell, X, Trash2
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { Item, Shift, PurchaseItem, Customer, CustomerPurchase, Expense, Category } from '../types';
