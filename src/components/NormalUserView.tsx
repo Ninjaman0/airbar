@@ -813,7 +813,7 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
       {/* Category Sidebar */}
       <div className="w-64 bg-white rounded-lg shadow-sm border border-gray-200 p-4 mr-6 h-fit">
         <h3 className="font-semibold text-gray-900 mb-4 flex items-center">
-          <Filter className="h-4 w-4 mr-2" />
+          <Dumbbell className="h-4 w-4 mr-2" />
           الفئات
         </h3>
         <div className="space-y-2">
