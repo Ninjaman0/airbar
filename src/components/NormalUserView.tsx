@@ -731,7 +731,7 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
               <div key={item.id} className="flex items-center justify-between py-3 border-b border-gray-100">
                 <span className="font-medium text-gray-900">{item.name}</span>
                 <div className="flex items-center space-x-3">
-                  <span className="text-sm text-gray-500">Current count:</span>
+                  <span className="text-sm text-gray-500">العدد الحالي:</span>
                   <input
                     type="number"
                     value={inventoryInputs[item.id] || 0}
