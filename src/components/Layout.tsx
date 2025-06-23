@@ -33,7 +33,7 @@ const Layout: React.FC<LayoutProps> = ({ children, currentSection, onSectionChan
                       : 'text-gray-600 hover:text-gray-900'
                   }`}
                 >
-                  <Store className="h-4 w-4" />
+                  <Dumbbell className="h-4 w-4" />
                   <span>BAR</span>
                 </button>
                 <button
