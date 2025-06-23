@@ -23,6 +23,24 @@ interface AuthProviderProps {
   children: ReactNode;
 }
 
+// Fixed user credentials in code
+const FIXED_USERS: User[] = [
+  {
+    id: 'admin-1',
+    username: 'admin',
+    password: 'admin123',
+    role: 'admin',
+    createdAt: new Date()
+  },
+  {
+    id: 'user-1',
+    username: 'user',
+    password: 'user123',
+    role: 'normal',
+    createdAt: new Date()
+  }
+];
+
 export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -40,9 +58,14 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
             const parsedUser = JSON.parse(storedUser);
             console.log('Found stored user:', parsedUser.username);
             
-            // Verify user still exists in database
-            const dbUser = await db.getUserByUsername(parsedUser.username);
-            if (dbUser && dbUser.id === parsedUser.id && dbUser.password === parsedUser.password) {
+            // Verify user exists in fixed users list
+            const fixedUser = FIXED_USERS.find(u => 
+              u.username === parsedUser.username && 
+              u.id === parsedUser.id && 
+              u.password === parsedUser.password
+            );
+            
+            if (fixedUser) {
               setUser(parsedUser);
               console.log('User session restored');
             } else {
@@ -53,38 +76,6 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
             console.error('Error parsing stored user:', error);
             localStorage.removeItem('currentUser');
           }
-        }
-
-        // Create default admin user if none exists
-        const adminUser = await db.getUserByUsername('admin');
-        if (!adminUser) {
-          const defaultAdmin: User = {
-            id: 'admin-1',
-            username: 'admin',
-            password: 'admin123',
-            role: 'admin',
-            createdAt: new Date()
-          };
-          await db.createUser(defaultAdmin);
-          console.log('Default admin user created');
-        } else {
-          console.log('Admin user exists');
-        }
-
-        // Create default normal user if none exists
-        const normalUser = await db.getUserByUsername('user');
-        if (!normalUser) {
-          const defaultUser: User = {
-            id: 'user-1',
-            username: 'user',
-            password: 'user123',
-            role: 'normal',
-            createdAt: new Date()
-          };
-          await db.createUser(defaultUser);
-          console.log('Default normal user created');
-        } else {
-          console.log('Normal user exists');
         }
 
         // Initialize default items if none exist
@@ -187,25 +178,24 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
     try {
       console.log('Attempting login for user:', username);
-      const dbUser = await db.getUserByUsername(username.trim());
       
-      if (!dbUser) {
-        console.log('Login failed: user not found');
-        return false;
-      }
+      // Check against fixed users list
+      const fixedUser = FIXED_USERS.find(u => 
+        u.username === username.trim() && u.password === password
+      );
       
-      if (dbUser.password !== password) {
-        console.log('Login failed: incorrect password');
+      if (!fixedUser) {
+        console.log('Login failed: invalid credentials');
         return false;
       }
       
       // Create a clean user object for storage
       const userForStorage: User = {
-        id: dbUser.id,
-        username: dbUser.username,
-        password: dbUser.password,
-        role: dbUser.role,
-        createdAt: dbUser.createdAt
+        id: fixedUser.id,
+        username: fixedUser.username,
+        password: fixedUser.password,
+        role: fixedUser.role,
+        createdAt: fixedUser.createdAt
       };
       
       setUser(userForStorage);
