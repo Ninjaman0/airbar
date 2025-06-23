@@ -42,25 +42,6 @@ const LoginForm: React.FC = () => {
     }
   };
 
-  const handleDemoLogin = async (demoUsername: string, demoPassword: string) => {
-    setUsername(demoUsername);
-    setPassword(demoPassword);
-    setError('');
-    setIsLoading(true);
-
-    try {
-      const success = await login(demoUsername, demoPassword);
-      if (!success) {
-        setError('Demo login failed. Please try manual login.');
-      }
-    } catch (err) {
-      console.error('Demo login error:', err);
-      setError('Demo login failed. Please try manual login.');
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
       <div className="bg-white rounded-2xl shadow-xl p-8 w-full max-w-md">
@@ -70,30 +51,6 @@ const LoginForm: React.FC = () => {
           </div>
           <h1 className="text-2xl font-bold text-gray-900 mb-2">Store Management</h1>
           <p className="text-gray-600">Sign in to your account</p>
-        </div>
-
-        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
-          <h3 className="font-semibold text-blue-900 mb-3">Demo Credentials:</h3>
-          <div className="space-y-2">
-            <button
-              onClick={() => handleDemoLogin('admin', 'admin123')}
-              disabled={isLoading}
-              className="w-full text-left p-2 rounded bg-blue-100 hover:bg-blue-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <div className="text-sm text-blue-800">
-                <span className="font-semibold">Admin:</span> <span className="font-mono">admin / admin123</span>
-              </div>
-            </button>
-            <button
-              onClick={() => handleDemoLogin('user', 'user123')}
-              disabled={isLoading}
-              className="w-full text-left p-2 rounded bg-blue-100 hover:bg-blue-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <div className="text-sm text-blue-800">
-                <span className="font-semibold">User:</span> <span className="font-mono">user / user123</span>
-              </div>
-            </button>
-          </div>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-6">
@@ -112,6 +69,7 @@ const LoginForm: React.FC = () => {
                 placeholder="Enter your username"
                 disabled={isLoading}
                 autoComplete="username"
+                required
               />
             </div>
           </div>
@@ -131,6 +89,7 @@ const LoginForm: React.FC = () => {
                 placeholder="Enter your password"
                 disabled={isLoading}
                 autoComplete="current-password"
+                required
               />
               <button
                 type="button"

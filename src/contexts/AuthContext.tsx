@@ -30,6 +30,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   useEffect(() => {
     const initAuth = async () => {
       try {
+        console.log('Initializing authentication...');
         await db.init();
         
         // Check for stored user session
@@ -37,12 +38,15 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         if (storedUser) {
           try {
             const parsedUser = JSON.parse(storedUser);
+            console.log('Found stored user:', parsedUser.username);
+            
             // Verify user still exists in database
             const dbUser = await db.getUserByUsername(parsedUser.username);
-            if (dbUser && dbUser.id === parsedUser.id) {
+            if (dbUser && dbUser.id === parsedUser.id && dbUser.password === parsedUser.password) {
               setUser(parsedUser);
+              console.log('User session restored');
             } else {
-              // User no longer exists or has been modified, clear session
+              console.log('Stored user session invalid, clearing...');
               localStorage.removeItem('currentUser');
             }
           } catch (error) {
@@ -63,6 +67,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
           };
           await db.createUser(defaultAdmin);
           console.log('Default admin user created');
+        } else {
+          console.log('Admin user exists');
         }
 
         // Create default normal user if none exists
@@ -77,10 +83,14 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
           };
           await db.createUser(defaultUser);
           console.log('Default normal user created');
+        } else {
+          console.log('Normal user exists');
         }
 
         // Initialize default items if none exist
         await initializeDefaultItems();
+        
+        console.log('Authentication initialization complete');
       } catch (error) {
         console.error('Failed to initialize auth:', error);
       } finally {
@@ -171,33 +181,45 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
   const login = async (username: string, password: string): Promise<boolean> => {
     if (!username.trim() || !password.trim()) {
+      console.log('Login failed: empty credentials');
       return false;
     }
 
     try {
+      console.log('Attempting login for user:', username);
       const dbUser = await db.getUserByUsername(username.trim());
-      if (dbUser && dbUser.password === password) {
-        // Create a clean user object without sensitive data for storage
-        const userForStorage: User = {
-          id: dbUser.id,
-          username: dbUser.username,
-          password: dbUser.password, // Keep password for session validation
-          role: dbUser.role,
-          createdAt: dbUser.createdAt
-        };
-        
-        setUser(userForStorage);
-        localStorage.setItem('currentUser', JSON.stringify(userForStorage));
-        return true;
+      
+      if (!dbUser) {
+        console.log('Login failed: user not found');
+        return false;
       }
-      return false;
+      
+      if (dbUser.password !== password) {
+        console.log('Login failed: incorrect password');
+        return false;
+      }
+      
+      // Create a clean user object for storage
+      const userForStorage: User = {
+        id: dbUser.id,
+        username: dbUser.username,
+        password: dbUser.password,
+        role: dbUser.role,
+        createdAt: dbUser.createdAt
+      };
+      
+      setUser(userForStorage);
+      localStorage.setItem('currentUser', JSON.stringify(userForStorage));
+      console.log('Login successful for user:', username);
+      return true;
     } catch (error) {
-      console.error('Login failed:', error);
+      console.error('Login failed with error:', error);
       return false;
     }
   };
 
   const logout = () => {
+    console.log('User logged out');
     setUser(null);
     localStorage.removeItem('currentUser');
   };
