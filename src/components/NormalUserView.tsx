@@ -915,7 +915,7 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
                         <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">المبلغ</th>
                         <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">السبب</th>
                         <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">التاريخ</th>
-                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"> </th>
                       </tr>
                     </thead>
                     <tbody className="bg-white divide-y divide-gray-200">
