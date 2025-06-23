@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { LogIn, User, Lock, Eye, EyeOff } from 'lucide-react';
+import { LogIn, Dumbbell, User, Lock, Eye, EyeOff } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
 const LoginForm: React.FC = () => {
