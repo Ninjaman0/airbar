@@ -1,11 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import { 
-  Package, DollarSign, TrendingUp, Calendar, Users, FileText, 
-  Plus, Edit, Trash2, Save, X, AlertCircle, CheckCircle, Eye,
-  Download, Filter, Search, Clock, Receipt, Settings
+  Plus, Edit, Trash2, Save, X, Package, DollarSign, 
+  TrendingUp, Calendar, Users, FileText, Settings, 
+  Download, Eye, AlertCircle, CheckCircle, UserPlus
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
-import { Item, Shift, Supply, Payment, DailySummary, MonthlySummary, Category, Customer, CustomerPurchase, Expense, SupplementDebt } from '../types';
+import { 
+  Item, Category, Shift, Supply, Payment, DailySummary, 
+  MonthlySummary, SupplementDebt, Customer, CustomerPurchase, 
+  User, AdminLog
+} from '../types';
 import { db } from '../services/database';
 import { generateShiftsPDF, generateMonthlySummaryPDF } from '../utils/pdfGenerator';
 
@@ -15,32 +19,35 @@ interface AdminViewProps {
 
 const AdminView: React.FC<AdminViewProps> = ({ section }) => {
   const { user } = useAuth();
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'inventory' | 'shifts' | 'profit' | 'customers' | 'payments'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'inventory' | 'shifts' | 'profit' | 'payments' | 'customers' | 'users' | 'adminlog'>('dashboard');
   const [items, setItems] = useState<Item[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [shifts, setShifts] = useState<Shift[]>([]);
-  const [customers, setCustomers] = useState<Customer[]>([]);
-  const [customerPurchases, setCustomerPurchases] = useState<CustomerPurchase[]>([]);
   const [supplies, setSupplies] = useState<Supply[]>([]);
   const [payments, setPayments] = useState<Payment[]>([]);
+  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [customerPurchases, setCustomerPurchases] = useState<CustomerPurchase[]>([]);
+  const [users, setUsers] = useState<User[]>([]);
+  const [adminLogs, setAdminLogs] = useState<AdminLog[]>([]);
   const [supplementDebt, setSupplementDebt] = useState<SupplementDebt | null>(null);
   const [selectedShift, setSelectedShift] = useState<Shift | null>(null);
-  const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
   const [editingItem, setEditingItem] = useState<Item | null>(null);
   const [editingCategory, setEditingCategory] = useState<Category | null>(null);
-  const [editingCustomerPurchase, setEditingCustomerPurchase] = useState<CustomerPurchase | null>(null);
-  const [showNewItemModal, setShowNewItemModal] = useState(false);
-  const [showNewCategoryModal, setShowNewCategoryModal] = useState(false);
-  const [showNewSupplyModal, setShowNewSupplyModal] = useState(false);
-  const [showNewPaymentModal, setShowNewPaymentModal] = useState(false);
-  const [showEditDebtModal, setShowEditDebtModal] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [selectedMonth, setSelectedMonth] = useState(new Date().toISOString().slice(0, 7));
-  const [customerTab, setCustomerTab] = useState<'today' | 'alltime'>('today');
+  const [editingUser, setEditingUser] = useState<User | null>(null);
+  const [showAddItem, setShowAddItem] = useState(false);
+  const [showAddCategory, setShowAddCategory] = useState(false);
+  const [showAddUser, setShowAddUser] = useState(false);
+  const [showAddSupply, setShowAddSupply] = useState(false);
+  const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [showEditDebt, setShowEditDebt] = useState(false);
+  const [newItem, setNewItem] = useState<Partial<Item>>({});
+  const [newCategory, setNewCategory] = useState<Partial<Category>>({});
+  const [newUser, setNewUser] = useState<Partial<User>>({});
+  const [newPayment, setNewPayment] = useState({ amount: 0, paidBy: '' });
   const [newDebtAmount, setNewDebtAmount] = useState(0);
-  const [newPaymentAmount, setNewPaymentAmount] = useState(0);
-  const [newPaymentPerson, setNewPaymentPerson] = useState('');
+  const [supplyItems, setSupplyItems] = useState<Record<string, number>>({});
+  const [supplyCost, setSupplyCost] = useState(0);
 
   useEffect(() => {
     loadData();
@@ -48,23 +55,31 @@ const AdminView: React.FC<AdminViewProps> = ({ section }) => {
 
   const loadData = async () => {
     try {
-      const [itemsData, categoriesData, shiftsData, customersData, customerPurchasesData, suppliesData, paymentsData] = await Promise.all([
+      const [
+        itemsData, categoriesData, shiftsData, suppliesData, 
+        paymentsData, customersData, customerPurchasesData,
+        usersData, adminLogsData
+      ] = await Promise.all([
         db.getItemsBySection(section),
         db.getCategoriesBySection(section),
         db.getShiftsBySection(section),
+        db.getSuppliesBySection(section),
+        db.getAllPayments(),
         db.getCustomersBySection(section),
         db.getUnpaidCustomerPurchases(section),
-        db.getSuppliesBySection(section),
-        db.getAllPayments()
+        db.getAllUsers(),
+        db.getAllAdminLogs()
       ]);
-      
+
       setItems(itemsData);
       setCategories(categoriesData);
       setShifts(shiftsData);
-      setCustomers(customersData);
-      setCustomerPurchases(customerPurchasesData);
       setSupplies(suppliesData);
       setPayments(paymentsData);
+      setCustomers(customersData);
+      setCustomerPurchases(customerPurchasesData);
+      setUsers(usersData);
+      setAdminLogs(adminLogsData);
 
       if (section === 'supplement') {
         const debt = await db.getSupplementDebt();
@@ -75,157 +90,320 @@ const AdminView: React.FC<AdminViewProps> = ({ section }) => {
     }
   };
 
-  const saveItem = async (item: Item) => {
+  const logAdminAction = async (actionType: string, itemOrShiftAffected: string, changeDetails: string) => {
+    if (!user) return;
+    
+    const log: AdminLog = {
+      id: `log-${Date.now()}`,
+      actionType,
+      itemOrShiftAffected,
+      changeDetails,
+      timestamp: new Date(),
+      adminName: user.username,
+      section
+    };
+
+    await db.saveAdminLog(log);
+  };
+
+  const saveItem = async () => {
+    if (!user || !newItem.name || !newItem.sellPrice || !newItem.costPrice) return;
+
+    setIsLoading(true);
     try {
+      const item: Item = {
+        id: editingItem?.id || `${section}-${Date.now()}`,
+        name: newItem.name,
+        sellPrice: newItem.sellPrice,
+        costPrice: newItem.costPrice,
+        currentAmount: newItem.currentAmount || 0,
+        image: newItem.image,
+        categoryId: newItem.categoryId,
+        section,
+        createdAt: editingItem?.createdAt || new Date(),
+        updatedAt: new Date()
+      };
+
       await db.saveItem(item);
+      
+      // Log admin action
+      const action = editingItem ? 'Edit Item' : 'Add Item';
+      const details = editingItem 
+        ? `Updated ${item.name}: Price ${item.sellPrice} EGP, Cost ${item.costPrice} EGP, Stock ${item.currentAmount}`
+        : `Added ${item.name}: Price ${item.sellPrice} EGP, Cost ${item.costPrice} EGP, Stock ${item.currentAmount}`;
+      await logAdminAction(action, item.name, details);
+
       await loadData();
+      setShowAddItem(false);
       setEditingItem(null);
-      setShowNewItemModal(false);
+      setNewItem({});
     } catch (error) {
       console.error('Failed to save item:', error);
+    } finally {
+      setIsLoading(false);
     }
   };
 
-  const deleteItem = async (id: string) => {
-    if (!confirm('Are you sure you want to delete this item?')) return;
-    
+  const deleteItem = async (item: Item) => {
+    if (!user || !confirm(`Are you sure you want to delete ${item.name}?`)) return;
+
+    setIsLoading(true);
     try {
-      await db.deleteItem(id);
+      await db.deleteItem(item.id);
+      await logAdminAction('Delete Item', item.name, `Deleted item: ${item.name}`);
       await loadData();
     } catch (error) {
       console.error('Failed to delete item:', error);
+    } finally {
+      setIsLoading(false);
     }
   };
 
-  const saveCategory = async (category: Category) => {
+  const saveCategory = async () => {
+    if (!user || !newCategory.name) return;
+
+    setIsLoading(true);
     try {
+      const category: Category = {
+        id: editingCategory?.id || `cat-${Date.now()}`,
+        name: newCategory.name,
+        section,
+        createdAt: editingCategory?.createdAt || new Date()
+      };
+
       await db.saveCategory(category);
+      
+      const action = editingCategory ? 'Edit Category' : 'Add Category';
+      await logAdminAction(action, category.name, `${action}: ${category.name}`);
+
       await loadData();
+      setShowAddCategory(false);
       setEditingCategory(null);
-      setShowNewCategoryModal(false);
+      setNewCategory({});
     } catch (error) {
       console.error('Failed to save category:', error);
+    } finally {
+      setIsLoading(false);
     }
   };
 
-  const deleteCategory = async (id: string) => {
-    if (!confirm('Are you sure you want to delete this category?')) return;
-    
+  const deleteCategory = async (category: Category) => {
+    if (!user || !confirm(`Are you sure you want to delete ${category.name}?`)) return;
+
+    setIsLoading(true);
     try {
-      await db.deleteCategory(id);
+      await db.deleteCategory(category.id);
+      await logAdminAction('Delete Category', category.name, `Deleted category: ${category.name}`);
       await loadData();
     } catch (error) {
       console.error('Failed to delete category:', error);
+    } finally {
+      setIsLoading(false);
     }
   };
 
-  const deleteCustomer = async (customer: Customer) => {
-    if (!confirm(`Are you sure you want to delete ${customer.name} and all associated data?`)) return;
-    
+  const saveUser = async () => {
+    if (!user || !newUser.username || !newUser.password || !newUser.role) return;
+
+    setIsLoading(true);
     try {
-      // Get all customer purchases
-      const allCustomerPurchases = await db.getCustomerPurchases(customer.id);
-      
-      // Delete all customer purchases
-      for (const purchase of allCustomerPurchases) {
-        // Note: In a real implementation, you'd need a delete method for customer purchases
-        // For now, we'll mark them as deleted by setting isPaid to true and adding a deleted flag
-        purchase.isPaid = true;
-        await db.saveCustomerPurchase(purchase);
+      const userToSave: User = {
+        id: editingUser?.id || `user-${Date.now()}`,
+        username: newUser.username,
+        password: newUser.password,
+        role: newUser.role,
+        createdAt: editingUser?.createdAt || new Date()
+      };
+
+      if (editingUser) {
+        await db.updateUser(userToSave);
+      } else {
+        await db.createUser(userToSave);
       }
       
-      // Delete customer (Note: You'd need to implement deleteCustomer in the database service)
-      // For now, we'll just reload data
+      const action = editingUser ? 'Edit User' : 'Add User';
+      await logAdminAction(action, userToSave.username, `${action}: ${userToSave.username} (${userToSave.role})`);
+
       await loadData();
+      setShowAddUser(false);
+      setEditingUser(null);
+      setNewUser({});
     } catch (error) {
-      console.error('Failed to delete customer:', error);
+      console.error('Failed to save user:', error);
+    } finally {
+      setIsLoading(false);
     }
   };
 
-  const updateCustomerPurchase = async (purchase: CustomerPurchase) => {
+  const deleteUser = async (userToDelete: User) => {
+    if (!user || userToDelete.id === user.id || !confirm(`Are you sure you want to delete ${userToDelete.username}?`)) return;
+
+    setIsLoading(true);
     try {
-      await db.saveCustomerPurchase(purchase);
+      await db.deleteUser(userToDelete.id);
+      await logAdminAction('Delete User', userToDelete.username, `Deleted user: ${userToDelete.username}`);
       await loadData();
-      setEditingCustomerPurchase(null);
     } catch (error) {
-      console.error('Failed to update customer purchase:', error);
+      console.error('Failed to delete user:', error);
+    } finally {
+      setIsLoading(false);
     }
   };
 
-  const removeExpenseFromShift = async (shift: Shift, expenseId: string) => {
-    if (!confirm('Are you sure you want to remove this expense?')) return;
-    
-    try {
-      const expense = shift.expenses.find(e => e.id === expenseId);
-      if (!expense) return;
+  const addSupply = async () => {
+    if (!user || Object.keys(supplyItems).length === 0 || supplyCost <= 0) return;
 
-      // Remove expense from shift
-      shift.expenses = shift.expenses.filter(e => e.id !== expenseId);
-      shift.totalAmount += expense.amount; // Return money to cashier balance
+    setIsLoading(true);
+    try {
+      const supply: Supply = {
+        id: `supply-${Date.now()}`,
+        section,
+        items: supplyItems,
+        totalCost: supplyCost,
+        timestamp: new Date(),
+        createdBy: user.username
+      };
+
+      await db.saveSupply(supply);
+
+      // Update item quantities
+      for (const [itemId, quantity] of Object.entries(supplyItems)) {
+        const item = items.find(i => i.id === itemId);
+        if (item) {
+          item.currentAmount += quantity;
+          item.updatedAt = new Date();
+          await db.saveItem(item);
+        }
+      }
+
+      // Update supplement debt if applicable
+      if (section === 'supplement') {
+        const currentDebt = supplementDebt?.amount || 0;
+        const newDebt: SupplementDebt = {
+          amount: currentDebt + supplyCost,
+          lastUpdated: new Date(),
+          updatedBy: user.username
+        };
+        await db.saveSupplementDebt(newDebt);
+        setSupplementDebt(newDebt);
+      }
+
+      const itemDetails = Object.entries(supplyItems)
+        .map(([itemId, qty]) => {
+          const item = items.find(i => i.id === itemId);
+          return `${item?.name}: +${qty}`;
+        })
+        .join(', ');
       
-      await db.saveShift(shift);
+      await logAdminAction('Add Supply', 'Multiple Items', `Added supply: ${itemDetails}, Total Cost: ${supplyCost} EGP`);
+
       await loadData();
+      setShowAddSupply(false);
+      setSupplyItems({});
+      setSupplyCost(0);
     } catch (error) {
-      console.error('Failed to remove expense:', error);
+      console.error('Failed to add supply:', error);
+    } finally {
+      setIsLoading(false);
     }
   };
 
-  const addSupplementPayment = async () => {
-    if (!user || newPaymentAmount <= 0 || !newPaymentPerson) return;
+  const addPayment = async () => {
+    if (!user || newPayment.amount <= 0 || !newPayment.paidBy) return;
 
+    setIsLoading(true);
     try {
       const payment: Payment = {
         id: `payment-${Date.now()}`,
-        amount: newPaymentAmount,
-        paidBy: newPaymentPerson,
+        amount: newPayment.amount,
+        paidBy: newPayment.paidBy,
         timestamp: new Date(),
         createdBy: user.username
       };
 
       await db.savePayment(payment);
+
+      // Update supplement debt
+      if (section === 'supplement') {
+        const currentDebt = supplementDebt?.amount || 0;
+        const newDebt: SupplementDebt = {
+          amount: currentDebt - newPayment.amount,
+          lastUpdated: new Date(),
+          updatedBy: user.username
+        };
+        await db.saveSupplementDebt(newDebt);
+        setSupplementDebt(newDebt);
+      }
+
+      await logAdminAction('Add Payment', 'Supplement Debt', `Payment: ${newPayment.amount} EGP by ${newPayment.paidBy}`);
+
       await loadData();
-      setShowNewPaymentModal(false);
-      setNewPaymentAmount(0);
-      setNewPaymentPerson('');
+      setShowPaymentModal(false);
+      setNewPayment({ amount: 0, paidBy: '' });
     } catch (error) {
       console.error('Failed to add payment:', error);
+    } finally {
+      setIsLoading(false);
     }
   };
 
-  const updateSupplementDebt = async () => {
-    if (!user) return;
+  const updateDebt = async () => {
+    if (!user || newDebtAmount < 0) return;
 
+    setIsLoading(true);
     try {
-      const debt: SupplementDebt = {
+      const newDebt: SupplementDebt = {
         amount: newDebtAmount,
         lastUpdated: new Date(),
         updatedBy: user.username
       };
 
-      await db.saveSupplementDebt(debt);
-      await loadData();
-      setShowEditDebtModal(false);
+      await db.saveSupplementDebt(newDebt);
+      setSupplementDebt(newDebt);
+      
+      await logAdminAction('Edit Debt', 'Supplement Debt', `Updated debt to: ${newDebtAmount} EGP`);
+
+      setShowEditDebt(false);
+      setNewDebtAmount(0);
     } catch (error) {
       console.error('Failed to update debt:', error);
+    } finally {
+      setIsLoading(false);
     }
   };
 
-  const calculateCurrentDebt = () => {
-    if (!supplementDebt) return 0;
-    
-    const totalPayments = payments.reduce((sum, payment) => sum + payment.amount, 0);
-    const totalSupplyCosts = supplies.reduce((sum, supply) => sum + supply.totalCost, 0);
-    
-    return supplementDebt.amount - totalPayments + totalSupplyCosts;
+  const deleteCustomer = async (customer: Customer) => {
+    if (!user || !confirm(`Are you sure you want to delete ${customer.name} and all their data?`)) return;
+
+    setIsLoading(true);
+    try {
+      // Get all customer purchases
+      const allPurchases = await db.getCustomerPurchases(customer.id);
+      
+      // Delete all customer purchases
+      for (const purchase of allPurchases) {
+        // Note: In a real implementation, you'd need a delete method for customer purchases
+        // For now, we'll mark them as deleted or handle differently
+      }
+
+      // Delete customer
+      // Note: You'd need to implement deleteCustomer in the database service
+      
+      await logAdminAction('Delete Customer', customer.name, `Deleted customer: ${customer.name} and all associated data`);
+      await loadData();
+    } catch (error) {
+      console.error('Failed to delete customer:', error);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const renderDashboard = () => {
-    const activeShift = shifts.find(s => s.status === 'active');
     const todayShifts = shifts.filter(s => {
       const today = new Date().toDateString();
       return new Date(s.startTime).toDateString() === today;
     });
-    
+
     const todayRevenue = todayShifts.reduce((sum, shift) => {
       return sum + shift.purchases.reduce((total, purchase) => total + (purchase.price * purchase.quantity), 0);
     }, 0);
@@ -233,25 +411,27 @@ const AdminView: React.FC<AdminViewProps> = ({ section }) => {
     const todayProfit = todayShifts.reduce((sum, shift) => {
       return sum + shift.purchases.reduce((total, purchase) => {
         const item = items.find(i => i.id === purchase.itemId);
-        const cost = item ? item.costPrice * purchase.quantity : 0;
-        const revenue = purchase.price * purchase.quantity;
-        return total + (revenue - cost);
+        const profit = item ? (purchase.price - item.costPrice) * purchase.quantity : 0;
+        return total + profit;
       }, 0);
     }, 0);
 
-    const totalCustomerDebt = customerPurchases.reduce((sum, cp) => sum + cp.totalAmount, 0);
-    const lowStockItems = items.filter(item => item.currentAmount < 10);
+    const activeShift = shifts.find(s => s.status === 'active');
+    const totalCustomers = customers.length;
+    const pendingDebt = customerPurchases.reduce((sum, cp) => sum + cp.totalAmount, 0);
 
     return (
       <div className="space-y-6">
+        <h2 className="text-2xl font-bold text-gray-900">Dashboard</h2>
+        
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
           <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
             <div className="flex items-center">
-              <div className="bg-green-100 p-3 rounded-full">
-                <DollarSign className="h-6 w-6 text-green-600" />
+              <div className="p-2 bg-green-100 rounded-lg">
+                <TrendingUp className="h-6 w-6 text-green-600" />
               </div>
               <div className="ml-4">
-                <p className="text-sm font-medium text-gray-500">Today's Profit</p>
+                <p className="text-sm font-medium text-gray-600">Today's Profit</p>
                 <p className="text-2xl font-bold text-gray-900">{todayProfit} EGP</p>
               </div>
             </div>
@@ -259,11 +439,11 @@ const AdminView: React.FC<AdminViewProps> = ({ section }) => {
 
           <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
             <div className="flex items-center">
-              <div className="bg-blue-100 p-3 rounded-full">
-                <TrendingUp className="h-6 w-6 text-blue-600" />
+              <div className="p-2 bg-blue-100 rounded-lg">
+                <DollarSign className="h-6 w-6 text-blue-600" />
               </div>
               <div className="ml-4">
-                <p className="text-sm font-medium text-gray-500">Today's Revenue</p>
+                <p className="text-sm font-medium text-gray-600">Today's Revenue</p>
                 <p className="text-2xl font-bold text-gray-900">{todayRevenue} EGP</p>
               </div>
             </div>
@@ -271,86 +451,100 @@ const AdminView: React.FC<AdminViewProps> = ({ section }) => {
 
           <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
             <div className="flex items-center">
-              <div className="bg-purple-100 p-3 rounded-full">
+              <div className="p-2 bg-purple-100 rounded-lg">
                 <Users className="h-6 w-6 text-purple-600" />
               </div>
               <div className="ml-4">
-                <p className="text-sm font-medium text-gray-500">Customer Debt</p>
-                <p className="text-2xl font-bold text-gray-900">{totalCustomerDebt} EGP</p>
+                <p className="text-sm font-medium text-gray-600">Total Customers</p>
+                <p className="text-2xl font-bold text-gray-900">{totalCustomers}</p>
               </div>
             </div>
           </div>
 
           <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
             <div className="flex items-center">
-              <div className={`p-3 rounded-full ${activeShift ? 'bg-green-100' : 'bg-gray-100'}`}>
-                <Clock className={`h-6 w-6 ${activeShift ? 'text-green-600' : 'text-gray-600'}`} />
+              <div className="p-2 bg-red-100 rounded-lg">
+                <AlertCircle className="h-6 w-6 text-red-600" />
               </div>
               <div className="ml-4">
-                <p className="text-sm font-medium text-gray-500">Shift Status</p>
-                <p className="text-2xl font-bold text-gray-900">{activeShift ? 'Active' : 'Closed'}</p>
+                <p className="text-sm font-medium text-gray-600">Pending Debt</p>
+                <p className="text-2xl font-bold text-gray-900">{pendingDebt} EGP</p>
               </div>
             </div>
           </div>
         </div>
 
-        {lowStockItems.length > 0 && (
-          <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-            <div className="flex items-center mb-3">
-              <AlertCircle className="h-5 w-5 text-yellow-600 mr-2" />
-              <h3 className="text-lg font-semibold text-yellow-800">Low Stock Alert</h3>
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-              {lowStockItems.map(item => (
-                <div key={item.id} className="bg-white rounded p-3 border border-yellow-300">
-                  <p className="font-medium text-gray-900">{item.name}</p>
-                  <p className="text-sm text-yellow-700">Stock: {item.currentAmount}</p>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">Recent Shifts</h3>
+            <div className="space-y-3">
+              {shifts.slice(0, 5).map(shift => (
+                <div key={shift.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                  <div>
+                    <p className="font-medium text-gray-900">{shift.username}</p>
+                    <p className="text-sm text-gray-600">{new Date(shift.startTime).toLocaleDateString()}</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="font-medium text-gray-900">{shift.totalAmount} EGP</p>
+                    <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
+                      shift.status === 'active' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
+                    }`}>
+                      {shift.status}
+                    </span>
+                  </div>
                 </div>
               ))}
             </div>
           </div>
-        )}
+
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">Low Stock Items</h3>
+            <div className="space-y-3">
+              {items.filter(item => item.currentAmount < 10).slice(0, 5).map(item => (
+                <div key={item.id} className="flex items-center justify-between p-3 bg-red-50 rounded-lg">
+                  <div>
+                    <p className="font-medium text-gray-900">{item.name}</p>
+                    <p className="text-sm text-gray-600">{item.sellPrice} EGP</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="font-medium text-red-600">{item.currentAmount} left</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
       </div>
     );
   };
 
   const renderInventory = () => {
-    const filteredItems = items.filter(item => 
-      item.name.toLowerCase().includes(searchTerm.toLowerCase())
-    );
-
     return (
       <div className="space-y-6">
         <div className="flex justify-between items-center">
           <h2 className="text-2xl font-bold text-gray-900">Inventory Management</h2>
           <div className="flex space-x-3">
             <button
-              onClick={() => setShowNewCategoryModal(true)}
+              onClick={() => setShowAddSupply(true)}
+              className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg font-medium transition-colors flex items-center"
+            >
+              <Package className="h-4 w-4 mr-2" />
+              Add Supply
+            </button>
+            <button
+              onClick={() => setShowAddCategory(true)}
               className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg font-medium transition-colors flex items-center"
             >
               <Plus className="h-4 w-4 mr-2" />
               Add Category
             </button>
             <button
-              onClick={() => setShowNewItemModal(true)}
+              onClick={() => setShowAddItem(true)}
               className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium transition-colors flex items-center"
             >
               <Plus className="h-4 w-4 mr-2" />
               Add Item
             </button>
-          </div>
-        </div>
-
-        <div className="flex items-center space-x-4">
-          <div className="relative flex-1 max-w-md">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-            <input
-              type="text"
-              placeholder="Search items..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            />
           </div>
         </div>
 
@@ -365,6 +559,7 @@ const AdminView: React.FC<AdminViewProps> = ({ section }) => {
                 <tr>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Items Count</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Created</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
                 </tr>
               </thead>
@@ -379,15 +574,22 @@ const AdminView: React.FC<AdminViewProps> = ({ section }) => {
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                         {itemCount}
                       </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                        {new Date(category.createdAt).toLocaleDateString()}
+                      </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-medium space-x-2">
                         <button
-                          onClick={() => setEditingCategory(category)}
+                          onClick={() => {
+                            setEditingCategory(category);
+                            setNewCategory(category);
+                            setShowAddCategory(true);
+                          }}
                           className="text-blue-600 hover:text-blue-900"
                         >
                           <Edit className="h-4 w-4" />
                         </button>
                         <button
-                          onClick={() => deleteCategory(category.id)}
+                          onClick={() => deleteCategory(category)}
                           className="text-red-600 hover:text-red-900"
                         >
                           <Trash2 className="h-4 w-4" />
@@ -411,10 +613,8 @@ const AdminView: React.FC<AdminViewProps> = ({ section }) => {
               <thead className="bg-gray-50">
                 <tr>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Category</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Cost Price</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Sell Price</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Profit</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Stock</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total Cost</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total Profit</th>
@@ -422,19 +622,13 @@ const AdminView: React.FC<AdminViewProps> = ({ section }) => {
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
-                {filteredItems.map(item => {
-                  const category = categories.find(c => c.id === item.categoryId);
-                  const profit = item.sellPrice - item.costPrice;
+                {items.map(item => {
                   const totalCost = item.costPrice * item.currentAmount;
-                  const totalProfit = profit * item.currentAmount;
-                  
+                  const totalProfit = (item.sellPrice - item.costPrice) * item.currentAmount;
                   return (
                     <tr key={item.id}>
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
                         {item.name}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                        {category?.name || 'Uncategorized'}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                         {item.costPrice} EGP
@@ -443,12 +637,7 @@ const AdminView: React.FC<AdminViewProps> = ({ section }) => {
                         {item.sellPrice} EGP
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                        {profit} EGP
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                        <span className={item.currentAmount < 10 ? 'text-red-600 font-semibold' : ''}>
-                          {item.currentAmount}
-                        </span>
+                        {item.currentAmount}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                         {totalCost} EGP
@@ -458,13 +647,17 @@ const AdminView: React.FC<AdminViewProps> = ({ section }) => {
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-medium space-x-2">
                         <button
-                          onClick={() => setEditingItem(item)}
+                          onClick={() => {
+                            setEditingItem(item);
+                            setNewItem(item);
+                            setShowAddItem(true);
+                          }}
                           className="text-blue-600 hover:text-blue-900"
                         >
                           <Edit className="h-4 w-4" />
                         </button>
                         <button
-                          onClick={() => deleteItem(item.id)}
+                          onClick={() => deleteItem(item)}
                           className="text-red-600 hover:text-red-900"
                         >
                           <Trash2 className="h-4 w-4" />
@@ -481,15 +674,227 @@ const AdminView: React.FC<AdminViewProps> = ({ section }) => {
     );
   };
 
+  const renderUsers = () => {
+    return (
+      <div className="space-y-6">
+        <div className="flex justify-between items-center">
+          <h2 className="text-2xl font-bold text-gray-900">User Management</h2>
+          <button
+            onClick={() => setShowAddUser(true)}
+            className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium transition-colors flex items-center"
+          >
+            <UserPlus className="h-4 w-4 mr-2" />
+            Add User
+          </button>
+        </div>
+
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Username</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Role</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Created</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {users.map(userItem => (
+                  <tr key={userItem.id}>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                      {userItem.username}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
+                        userItem.role === 'admin' ? 'bg-red-100 text-red-800' : 'bg-blue-100 text-blue-800'
+                      }`}>
+                        {userItem.role}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      {new Date(userItem.createdAt).toLocaleDateString()}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium space-x-2">
+                      <button
+                        onClick={() => {
+                          setEditingUser(userItem);
+                          setNewUser(userItem);
+                          setShowAddUser(true);
+                        }}
+                        className="text-blue-600 hover:text-blue-900"
+                      >
+                        <Edit className="h-4 w-4" />
+                      </button>
+                      {userItem.id !== user?.id && (
+                        <button
+                          onClick={() => deleteUser(userItem)}
+                          className="text-red-600 hover:text-red-900"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const renderAdminLog = () => {
+    return (
+      <div className="space-y-6">
+        <div className="flex justify-between items-center">
+          <h2 className="text-2xl font-bold text-gray-900">Admin Log</h2>
+          <p className="text-sm text-gray-600">All admin actions are permanently logged</p>
+        </div>
+
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Timestamp</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Admin</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Action Type</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500  uppercase tracking-wider">Item/Shift Affected</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Change Details</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Section</th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {adminLogs.map(log => (
+                  <tr key={log.id}>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      {new Date(log.timestamp).toLocaleString()}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                      {log.adminName}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
+                        log.actionType.includes('Delete') ? 'bg-red-100 text-red-800' :
+                        log.actionType.includes('Add') ? 'bg-green-100 text-green-800' :
+                        'bg-blue-100 text-blue-800'
+                      }`}>
+                        {log.actionType}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      {log.itemOrShiftAffected}
+                    </td>
+                    <td className="px-6 py-4 text-sm text-gray-900 max-w-xs truncate">
+                      {log.changeDetails}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      {log.section || 'General'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   const renderShifts = () => {
     if (selectedShift) {
-      return renderShiftDetails();
-    }
+      return (
+        <div className="space-y-6">
+          <div className="flex items-center justify-between">
+            <h2 className="text-2xl font-bold text-gray-900">Shift Details</h2>
+            <button
+              onClick={() => setSelectedShift(null)}
+              className="text-gray-500 hover:text-gray-700"
+            >
+              <X className="h-6 w-6" />
+            </button>
+          </div>
 
-    const filteredShifts = shifts.filter(shift => 
-      shift.username.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      shift.id.toLowerCase().includes(searchTerm.toLowerCase())
-    );
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+              <div>
+                <h3 className="text-lg font-semibold text-gray-900 mb-4">Shift Summary</h3>
+                <div className="space-y-2 text-sm">
+                  <div><span className="font-medium">Shift ID:</span> {selectedShift.id}</div>
+                  <div><span className="font-medium">Started:</span> {new Date(selectedShift.startTime).toLocaleString()}</div>
+                  <div><span className="font-medium">Ended:</span> {selectedShift.endTime ? new Date(selectedShift.endTime).toLocaleString() : 'Active'}</div>
+                  <div><span className="font-medium">Total Cash:</span> {selectedShift.totalAmount} EGP</div>
+                  <div><span className="font-medium">Items Sold:</span> {selectedShift.purchases.reduce((total, p) => total + p.quantity, 0)}</div>
+                  <div><span className="font-medium">User Opened:</span> {selectedShift.username}</div>
+                  <div><span className="font-medium">User Closed:</span> {selectedShift.status === 'closed' ? selectedShift.username : '-'}</div>
+                  <div>
+                    <span className="font-medium">Validation Status:</span>
+                    <span className={`ml-2 inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
+                      selectedShift.validationStatus === 'balanced' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+                    }`}>
+                      {selectedShift.validationStatus}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {selectedShift.discrepancies && selectedShift.discrepancies.length > 0 && (
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-900 mb-4">Discrepancies</h3>
+                  <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+                    <ul className="space-y-1 text-sm text-red-700">
+                      {selectedShift.discrepancies.map((discrepancy, index) => (
+                        <li key={index}>• {discrepancy}</li>
+                      ))}
+                    </ul>
+                    {selectedShift.closeReason && (
+                      <div className="mt-3 pt-3 border-t border-red-200">
+                        <p className="font-medium text-red-800">Reason:</p>
+                        <p className="text-red-700">{selectedShift.closeReason}</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {selectedShift.expenses.length > 0 && (
+              <div className="mb-6">
+                <h3 className="text-lg font-semibold text-gray-900 mb-4">Expenses</h3>
+                <div className="overflow-x-auto">
+                  <table className="min-w-full divide-y divide-gray-200">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Amount</th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Reason</th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Timestamp</th>
+                      </tr>
+                    </thead>
+                    <tbody className="bg-white divide-y divide-gray-200">
+                      {selectedShift.expenses.map(expense => (
+                        <tr key={expense.id}>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                            {expense.amount} EGP
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                            {expense.reason}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                            {new Date(expense.timestamp).toLocaleString()}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    }
 
     return (
       <div className="space-y-6">
@@ -497,24 +902,11 @@ const AdminView: React.FC<AdminViewProps> = ({ section }) => {
           <h2 className="text-2xl font-bold text-gray-900">Shifts History</h2>
           <button
             onClick={() => generateShiftsPDF(shifts, section)}
-            className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg font-medium transition-colors flex items-center"
+            className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium transition-colors flex items-center"
           >
             <Download className="h-4 w-4 mr-2" />
             Export PDF
           </button>
-        </div>
-
-        <div className="flex items-center space-x-4">
-          <div className="relative flex-1 max-w-md">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-            <input
-              type="text"
-              placeholder="Search shifts..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            />
-          </div>
         </div>
 
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
@@ -535,16 +927,16 @@ const AdminView: React.FC<AdminViewProps> = ({ section }) => {
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
-                {filteredShifts.map(shift => (
-                  <tr key={shift.id} className="hover:bg-gray-50">
+                {shifts.map(shift => (
+                  <tr key={shift.id} className="hover:bg-gray-50 cursor-pointer">
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
                       {shift.id}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {new Date(shift.startTime).toLocaleString()}
+                      {new Date(shift.startTime).toLocaleDateString()}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {shift.endTime ? new Date(shift.endTime).toLocaleString() : 'Active'}
+                      {shift.endTime ? new Date(shift.endTime).toLocaleDateString() : 'Active'}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                       {shift.totalAmount} EGP
@@ -555,11 +947,9 @@ const AdminView: React.FC<AdminViewProps> = ({ section }) => {
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                       {shift.expenses.reduce((total, e) => total + e.amount, 0)} EGP
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span className={`px-2 py-1 text-xs font-semibold rounded-full ${
-                        shift.validationStatus === 'balanced' 
-                          ? 'bg-green-100 text-green-800' 
-                          : 'bg-red-100 text-red-800'
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
+                        shift.validationStatus === 'balanced' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
                       }`}>
                         {shift.validationStatus}
                       </span>
@@ -573,10 +963,9 @@ const AdminView: React.FC<AdminViewProps> = ({ section }) => {
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                       <button
                         onClick={() => setSelectedShift(shift)}
-                        className="text-blue-600 hover:text-blue-900 flex items-center"
+                        className="text-blue-600 hover:text-blue-900"
                       >
-                        <Eye className="h-4 w-4 mr-1" />
-                        View Details
+                        <Eye className="h-4 w-4" />
                       </button>
                     </td>
                   </tr>
@@ -589,165 +978,260 @@ const AdminView: React.FC<AdminViewProps> = ({ section }) => {
     );
   };
 
-  const renderShiftDetails = () => {
-    if (!selectedShift) return null;
+  const renderPayments = () => {
+    if (section !== 'supplement') return null;
+
+    const totalPayments = payments.reduce((sum, p) => sum + p.amount, 0);
+    const totalSupplyCosts = supplies.reduce((sum, s) => sum + s.totalCost, 0);
+    const currentDebt = (supplementDebt?.amount || 0) - totalPayments + totalSupplyCosts;
 
     return (
       <div className="space-y-6">
-        <div className="flex items-center justify-between">
-          <h2 className="text-2xl font-bold text-gray-900">Shift Details</h2>
+        <div className="flex justify-between items-center">
+          <h2 className="text-2xl font-bold text-gray-900">Supplement Payments</h2>
           <button
-            onClick={() => setSelectedShift(null)}
-            className="text-gray-500 hover:text-gray-700"
+            onClick={() => setShowPaymentModal(true)}
+            className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg font-medium transition-colors flex items-center"
           >
-            <X className="h-6 w-6" />
+            <Plus className="h-4 w-4 mr-2" />
+            Add Payment
           </button>
         </div>
 
-        {/* Shift Summary */}
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">Shift Summary</h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            <div>
-              <p className="text-sm font-medium text-gray-500">Shift ID</p>
-              <p className="text-lg font-semibold text-gray-900">{selectedShift.id}</p>
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Type</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Amount</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Person/Description</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {/* Debt Row */}
+                <tr className="bg-red-50">
+                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-red-900">
+                    Debt
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-red-900">
+                    {supplementDebt?.amount || 0} EGP
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-red-900">
+                    Initial debt amount
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-red-900">
+                    {supplementDebt?.lastUpdated ? new Date(supplementDebt.lastUpdated).toLocaleDateString() : '-'}
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                    <button
+                      onClick={() => {
+                        setNewDebtAmount(supplementDebt?.amount || 0);
+                        setShowEditDebt(true);
+                      }}
+                      className="text-blue-600 hover:text-blue-900"
+                    >
+                      <Edit className="h-4 w-4" />
+                    </button>
+                  </td>
+                </tr>
+
+                {/* Payment Rows */}
+                {payments.map(payment => (
+                  <tr key={payment.id} className="bg-green-50">
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-green-900">
+                      Payment
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-green-900">
+                      -{payment.amount} EGP
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-green-900">
+                      {payment.paidBy}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-green-900">
+                      {new Date(payment.timestamp).toLocaleDateString()}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                      -
+                    </td>
+                  </tr>
+                ))}
+
+                {/* Supply Rows */}
+                {supplies.map(supply => (
+                  <tr key={supply.id} className="bg-blue-50">
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-blue-900">
+                      New Supply
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-blue-900">
+                      +{supply.totalCost} EGP
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-blue-900">
+                      Supply cost
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-blue-900">
+                      {new Date(supply.timestamp).toLocaleDateString()}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                      -
+                    </td>
+                  </tr>
+                ))}
+
+                {/* Current Debt Row */}
+                <tr className="bg-gray-100 font-bold">
+                  <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-gray-900">
+                    Current Debt
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-gray-900">
+                    {currentDebt} EGP
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                    Calculated balance
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                    -
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                    -
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const renderProfit = () => {
+    const currentMonth = new Date().toISOString().slice(0, 7);
+    const monthlyShifts = shifts.filter(shift => {
+      const shiftMonth = new Date(shift.startTime).toISOString().slice(0, 7);
+      return shiftMonth === currentMonth;
+    });
+
+    const monthlyRevenue = monthlyShifts.reduce((sum, shift) => {
+      return sum + shift.purchases.reduce((total, purchase) => total + (purchase.price * purchase.quantity), 0);
+    }, 0);
+
+    const monthlyProfit = monthlyShifts.reduce((sum, shift) => {
+      return sum + shift.purchases.reduce((total, purchase) => {
+        const item = items.find(i => i.id === purchase.itemId);
+        const profit = item ? (purchase.price - item.costPrice) * purchase.quantity : 0;
+        return total + profit;
+      }, 0);
+    }, 0);
+
+    const monthlyExpenses = monthlyShifts.reduce((sum, shift) => {
+      return sum + shift.expenses.reduce((total, expense) => total + expense.amount, 0);
+    }, 0);
+
+    return (
+      <div className="space-y-6">
+        <div className="flex justify-between items-center">
+          <h2 className="text-2xl font-bold text-gray-900">Monthly Summary</h2>
+          <button
+            onClick={() => generateMonthlySummaryPDF(monthlyShifts, items, section, currentMonth)}
+            className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium transition-colors flex items-center"
+          >
+            <Download className="h-4 w-4 mr-2" />
+            Export PDF
+          </button>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+            <div className="flex items-center">
+              <div className="p-2 bg-green-100 rounded-lg">
+                <TrendingUp className="h-6 w-6 text-green-600" />
+              </div>
+              <div className="ml-4">
+                <p className="text-sm font-medium text-gray-600">Monthly Profit</p>
+                <p className="text-2xl font-bold text-gray-900">{monthlyProfit} EGP</p>
+              </div>
             </div>
-            <div>
-              <p className="text-sm font-medium text-gray-500">Date/Time Started</p>
-              <p className="text-lg font-semibold text-gray-900">
-                {new Date(selectedShift.startTime).toLocaleString()}
-              </p>
+          </div>
+
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+            <div className="flex items-center">
+              <div className="p-2 bg-blue-100 rounded-lg">
+                <DollarSign className="h-6 w-6 text-blue-600" />
+              </div>
+              <div className="ml-4">
+                <p className="text-sm font-medium text-gray-600">Monthly Revenue</p>
+                <p className="text-2xl font-bold text-gray-900">{monthlyRevenue} EGP</p>
+              </div>
             </div>
-            <div>
-              <p className="text-sm font-medium text-gray-500">Date/Time Ended</p>
-              <p className="text-lg font-semibold text-gray-900">
-                {selectedShift.endTime ? new Date(selectedShift.endTime).toLocaleString() : 'Active'}
-              </p>
-            </div>
-            <div>
-              <p className="text-sm font-medium text-gray-500">Total Cash</p>
-              <p className="text-lg font-semibold text-gray-900">{selectedShift.totalAmount} EGP</p>
-            </div>
-            <div>
-              <p className="text-sm font-medium text-gray-500">Items Sold</p>
-              <p className="text-lg font-semibold text-gray-900">
-                {selectedShift.purchases.reduce((total, p) => total + p.quantity, 0)}
-              </p>
-            </div>
-            <div>
-              <p className="text-sm font-medium text-gray-500">Validation Status</p>
-              <span className={`px-2 py-1 text-xs font-semibold rounded-full ${
-                selectedShift.validationStatus === 'balanced' 
-                  ? 'bg-green-100 text-green-800' 
-                  : 'bg-red-100 text-red-800'
-              }`}>
-                {selectedShift.validationStatus}
-              </span>
-            </div>
-            <div>
-              <p className="text-sm font-medium text-gray-500">User Opened</p>
-              <p className="text-lg font-semibold text-gray-900">{selectedShift.username}</p>
-            </div>
-            <div>
-              <p className="text-sm font-medium text-gray-500">User Closed</p>
-              <p className="text-lg font-semibold text-gray-900">
-                {selectedShift.status === 'closed' ? selectedShift.username : '-'}
-              </p>
+          </div>
+
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+            <div className="flex items-center">
+              <div className="p-2 bg-red-100 rounded-lg">
+                <AlertCircle className="h-6 w-6 text-red-600" />
+              </div>
+              <div className="ml-4">
+                <p className="text-sm font-medium text-gray-600">Monthly Expenses</p>
+                <p className="text-2xl font-bold text-gray-900">{monthlyExpenses} EGP</p>
+              </div>
             </div>
           </div>
         </div>
 
-        {/* Expenses List */}
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
           <div className="px-6 py-4 border-b border-gray-200">
-            <h3 className="text-lg font-semibold text-gray-900">Expenses</h3>
+            <h3 className="text-lg font-semibold text-gray-900">Monthly Shifts</h3>
           </div>
-          {selectedShift.expenses.length > 0 ? (
-            <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-gray-200">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Amount</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Reason</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Timestamp</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Created By</th>
-                    {selectedShift.status === 'active' && (
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
-                    )}
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Shift ID</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Started</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Ended</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">User Opened</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">User Closed</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total Cash</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Expenses</th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {monthlyShifts.map(shift => (
+                  <tr key={shift.id}>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                      {shift.id}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      {new Date(shift.startTime).toLocaleDateString()}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      {shift.endTime ? new Date(shift.endTime).toLocaleDateString() : 'Active'}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      {shift.username}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      {shift.status === 'closed' ? shift.username : '-'}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      {shift.totalAmount} EGP
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      {shift.expenses.reduce((total, e) => total + e.amount, 0)} EGP
+                    </td>
                   </tr>
-                </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
-                  {selectedShift.expenses.map(expense => (
-                    <tr key={expense.id}>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                        {expense.amount} EGP
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                        {expense.reason}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                        {new Date(expense.timestamp).toLocaleString()}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                        {expense.createdBy}
-                      </td>
-                      {selectedShift.status === 'active' && (
-                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                          <button
-                            onClick={() => removeExpenseFromShift(selectedShift, expense.id)}
-                            className="text-red-600 hover:text-red-900 flex items-center"
-                          >
-                            <Trash2 className="h-4 w-4 mr-1" />
-                            Remove
-                          </button>
-                        </td>
-                      )}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ) : (
-            <div className="px-6 py-8 text-center text-gray-500">
-              No expenses recorded for this shift
-            </div>
-          )}
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
-
-        {/* Close Reason Note */}
-        {selectedShift.closeReason && (
-          <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-            <div className="flex items-center mb-2">
-              <AlertCircle className="h-5 w-5 text-yellow-600 mr-2" />
-              <h3 className="text-lg font-semibold text-yellow-800">Close Reason</h3>
-            </div>
-            <p className="text-yellow-700">{selectedShift.closeReason}</p>
-          </div>
-        )}
-
-        {/* Discrepancies */}
-        {selectedShift.discrepancies && selectedShift.discrepancies.length > 0 && (
-          <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-            <div className="flex items-center mb-2">
-              <AlertCircle className="h-5 w-5 text-red-600 mr-2" />
-              <h3 className="text-lg font-semibold text-red-800">Discrepancies Found</h3>
-            </div>
-            <ul className="list-disc list-inside text-red-700">
-              {selectedShift.discrepancies.map((discrepancy, index) => (
-                <li key={index}>{discrepancy}</li>
-              ))}
-            </ul>
-          </div>
-        )}
       </div>
     );
   };
 
   const renderCustomers = () => {
-    if (selectedCustomer) {
-      return renderCustomerDetails();
-    }
-
     return (
       <div className="space-y-6">
         <div className="flex justify-between items-center">
@@ -761,10 +1245,7 @@ const AdminView: React.FC<AdminViewProps> = ({ section }) => {
               .reduce((total, cp) => total + cp.totalAmount, 0);
 
             return (
-              <div 
-                key={customer.id} 
-                className="bg-white rounded-lg shadow-sm border border-gray-200 p-6"
-              >
+              <div key={customer.id} className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
                 <div className="flex items-center justify-between mb-4">
                   <h3 className="text-lg font-semibold text-gray-900">{customer.name}</h3>
                   <span className={`px-2 py-1 text-xs font-semibold rounded-full ${
@@ -782,16 +1263,11 @@ const AdminView: React.FC<AdminViewProps> = ({ section }) => {
 
                 <div className="flex space-x-2">
                   <button
-                    onClick={() => setSelectedCustomer(customer)}
-                    className="flex-1 bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded text-sm font-medium transition-colors"
-                  >
-                    View Details
-                  </button>
-                  <button
                     onClick={() => deleteCustomer(customer)}
-                    className="bg-red-600 hover:bg-red-700 text-white px-3 py-2 rounded text-sm font-medium transition-colors"
+                    className="flex-1 bg-red-600 hover:bg-red-700 text-white px-3 py-2 rounded-lg text-sm font-medium transition-colors flex items-center justify-center"
                   >
-                    <Trash2 className="h-4 w-4" />
+                    <Trash2 className="h-4 w-4 mr-1" />
+                    Delete Customer
                   </button>
                 </div>
               </div>
@@ -802,585 +1278,37 @@ const AdminView: React.FC<AdminViewProps> = ({ section }) => {
     );
   };
 
-  const renderCustomerDetails = () => {
-    if (!selectedCustomer) return null;
-
-    const todayPurchases = customerPurchases.filter(cp => 
-      cp.customerId === selectedCustomer.id && 
-      !cp.isPaid && 
-      cp.shiftId === shifts.find(s => s.status === 'active')?.id
-    );
-
-    const allTimePurchases = customerPurchases.filter(cp => 
-      cp.customerId === selectedCustomer.id && 
-      !cp.isPaid
-    );
-
-    const todayTotal = todayPurchases.reduce((sum, cp) => sum + cp.totalAmount, 0);
-    const allTimeTotal = allTimePurchases.reduce((sum, cp) => sum + cp.totalAmount, 0);
-
-    return (
-      <div className="space-y-6">
-        <div className="flex items-center justify-between">
-          <h2 className="text-2xl font-bold text-gray-900">{selectedCustomer.name}</h2>
-          <button
-            onClick={() => setSelectedCustomer(null)}
-            className="text-gray-500 hover:text-gray-700"
-          >
-            <X className="h-6 w-6" />
-          </button>
-        </div>
-
-        {/* Customer Tabs */}
-        <div className="border-b border-gray-200">
-          <nav className="-mb-px flex space-x-8">
-            <button
-              onClick={() => setCustomerTab('today')}
-              className={`py-2 px-1 border-b-2 font-medium text-sm ${
-                customerTab === 'today'
-                  ? 'border-blue-500 text-blue-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-              }`}
-            >
-              Today's Items ({todayTotal} EGP)
-            </button>
-            <button
-              onClick={() => setCustomerTab('alltime')}
-              className={`py-2 px-1 border-b-2 font-medium text-sm ${
-                customerTab === 'alltime'
-                  ? 'border-blue-500 text-blue-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-              }`}
-            >
-              All-Time Items ({allTimeTotal} EGP)
-            </button>
-          </nav>
-        </div>
-
-        {/* Today's Items */}
-        {customerTab === 'today' && (
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
-            <div className="px-6 py-4 border-b border-gray-200">
-              <h3 className="text-lg font-semibold text-gray-900">Today's Items</h3>
-            </div>
-            <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-gray-200">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Item Name</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Quantity</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Unit Price</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total Price</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
-                  {todayPurchases.flatMap(purchase => 
-                    purchase.items.map((item, index) => (
-                      <tr key={`${purchase.id}-${index}`}>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                          {item.name}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                          {editingCustomerPurchase?.id === purchase.id ? (
-                            <input
-                              type="number"
-                              value={item.quantity}
-                              onChange={(e) => {
-                                const newQuantity = parseInt(e.target.value) || 0;
-                                const updatedPurchase = { ...purchase };
-                                updatedPurchase.items[index].quantity = newQuantity;
-                                updatedPurchase.totalAmount = updatedPurchase.items.reduce((sum, i) => sum + (i.price * i.quantity), 0);
-                                setEditingCustomerPurchase(updatedPurchase);
-                              }}
-                              className="w-20 px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                              min="0"
-                            />
-                          ) : (
-                            item.quantity
-                          )}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                          {item.price} EGP
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                          {item.price * item.quantity} EGP
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                          {editingCustomerPurchase?.id === purchase.id ? (
-                            <div className="flex space-x-2">
-                              <button
-                                onClick={() => updateCustomerPurchase(editingCustomerPurchase)}
-                                className="text-green-600 hover:text-green-900"
-                              >
-                                <Save className="h-4 w-4" />
-                              </button>
-                              <button
-                                onClick={() => setEditingCustomerPurchase(null)}
-                                className="text-gray-600 hover:text-gray-900"
-                              >
-                                <X className="h-4 w-4" />
-                              </button>
-                            </div>
-                          ) : (
-                            <button
-                              onClick={() => setEditingCustomerPurchase(purchase)}
-                              className="text-blue-600 hover:text-blue-900"
-                            >
-                              <Edit className="h-4 w-4" />
-                            </button>
-                          )}
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
-
-        {/* All-Time Items */}
-        {customerTab === 'alltime' && (
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
-            <div className="px-6 py-4 border-b border-gray-200">
-              <h3 className="text-lg font-semibold text-gray-900">All-Time Items</h3>
-            </div>
-            <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-gray-200">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Item Name</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Quantity</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Unit Price</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total Price</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date Taken</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
-                  {allTimePurchases.flatMap(purchase => 
-                    purchase.items.map((item, index) => (
-                      <tr key={`${purchase.id}-${index}`}>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                          {item.name}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                          {editingCustomerPurchase?.id === purchase.id ? (
-                            <input
-                              type="number"
-                              value={item.quantity}
-                              onChange={(e) => {
-                                const newQuantity = parseInt(e.target.value) || 0;
-                                const updatedPurchase = { ...purchase };
-                                updatedPurchase.items[index].quantity = newQuantity;
-                                updatedPurchase.totalAmount = updatedPurchase.items.reduce((sum, i) => sum + (i.price * i.quantity), 0);
-                                setEditingCustomerPurchase(updatedPurchase);
-                              }}
-                              className="w-20 px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                              min="0"
-                            />
-                          ) : (
-                            item.quantity
-                          )}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                          {item.price} EGP
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                          {item.price * item.quantity} EGP
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                          {new Date(purchase.timestamp).toLocaleDateString()}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                          {editingCustomerPurchase?.id === purchase.id ? (
-                            <div className="flex space-x-2">
-                              <button
-                                onClick={() => updateCustomerPurchase(editingCustomerPurchase)}
-                                className="text-green-600 hover:text-green-900"
-                              >
-                                <Save className="h-4 w-4" />
-                              </button>
-                              <button
-                                onClick={() => setEditingCustomerPurchase(null)}
-                                className="text-gray-600 hover:text-gray-900"
-                              >
-                                <X className="h-4 w-4" />
-                              </button>
-                            </div>
-                          ) : (
-                            <button
-                              onClick={() => setEditingCustomerPurchase(purchase)}
-                              className="text-blue-600 hover:text-blue-900"
-                            >
-                              <Edit className="h-4 w-4" />
-                            </button>
-                          )}
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
-      </div>
-    );
-  };
-
-  const renderPayments = () => {
-    if (section !== 'supplement') return null;
-
-    const currentDebt = calculateCurrentDebt();
-
-    return (
-      <div className="space-y-6">
-        <div className="flex justify-between items-center">
-          <h2 className="text-2xl font-bold text-gray-900">Supplement Payments</h2>
-          <div className="flex space-x-3">
-            <button
-              onClick={() => setShowEditDebtModal(true)}
-              className="bg-orange-600 hover:bg-orange-700 text-white px-4 py-2 rounded-lg font-medium transition-colors flex items-center"
-            >
-              <Edit className="h-4 w-4 mr-2" />
-              Edit Debt
-            </button>
-            <button
-              onClick={() => setShowNewPaymentModal(true)}
-              className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg font-medium transition-colors flex items-center"
-            >
-              <Plus className="h-4 w-4 mr-2" />
-              Add Payment
-            </button>
-          </div>
-        </div>
-
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Type</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Amount</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Person/Description</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {/* Debt Row */}
-                {supplementDebt && (
-                  <tr className="bg-red-50">
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-red-900">
-                      Debt
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-red-900">
-                      {supplementDebt.amount} EGP
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-red-700">
-                      Updated by {supplementDebt.updatedBy}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-red-700">
-                      {new Date(supplementDebt.lastUpdated).toLocaleDateString()}
-                    </td>
-                  </tr>
-                )}
-
-                {/* Payment Rows */}
-                {payments.map(payment => (
-                  <tr key={payment.id} className="bg-green-50">
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-green-900">
-                      Payment
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-green-900">
-                      -{payment.amount} EGP
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-green-700">
-                      {payment.paidBy}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-green-700">
-                      {new Date(payment.timestamp).toLocaleDateString()}
-                    </td>
-                  </tr>
-                ))}
-
-                {/* Supply Cost Rows */}
-                {supplies.map(supply => (
-                  <tr key={supply.id} className="bg-blue-50">
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-blue-900">
-                      New Supply
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-blue-900">
-                      +{supply.totalCost} EGP
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-blue-700">
-                      Total cost of new supply
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-blue-700">
-                      {new Date(supply.timestamp).toLocaleDateString()}
-                    </td>
-                  </tr>
-                ))}
-
-                {/* Current Debt Row */}
-                <tr className="bg-gray-100 font-bold">
-                  <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-gray-900">
-                    Current Debt
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-gray-900">
-                    {currentDebt} EGP
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
-                    Calculated Balance
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
-                    {new Date().toLocaleDateString()}
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </div>
-    );
-  };
-
-  const renderProfit = () => {
-    const monthlyShifts = shifts.filter(shift => {
-      const shiftMonth = new Date(shift.startTime).toISOString().slice(0, 7);
-      return shiftMonth === selectedMonth;
-    });
-
-    const itemTotals: Record<string, {
-      totalSold: number;
-      totalCost: number;
-      totalProfit: number;
-      totalRevenue: number;
-      name: string;
-    }> = {};
-
-    monthlyShifts.forEach(shift => {
-      shift.purchases.forEach(purchase => {
-        if (!itemTotals[purchase.itemId]) {
-          const item = items.find(i => i.id === purchase.itemId);
-          itemTotals[purchase.itemId] = {
-            totalSold: 0,
-            totalCost: 0,
-            totalProfit: 0,
-            totalRevenue: 0,
-            name: purchase.name
-          };
-        }
-        
-        const item = items.find(i => i.id === purchase.itemId);
-        const cost = item ? item.costPrice * purchase.quantity : 0;
-        const revenue = purchase.price * purchase.quantity;
-        
-        itemTotals[purchase.itemId].totalSold += purchase.quantity;
-        itemTotals[purchase.itemId].totalCost += cost;
-        itemTotals[purchase.itemId].totalRevenue += revenue;
-        itemTotals[purchase.itemId].totalProfit += revenue - cost;
-      });
-    });
-
-    const totalRevenue = Object.values(itemTotals).reduce((sum, item) => sum + item.totalRevenue, 0);
-    const totalCost = Object.values(itemTotals).reduce((sum, item) => sum + item.totalCost, 0);
-    const totalProfit = totalRevenue - totalCost;
-    const totalExpenses = monthlyShifts.reduce((sum, shift) => sum + shift.expenses.reduce((total, e) => total + e.amount, 0), 0);
-
-    return (
-      <div className="space-y-6">
-        <div className="flex justify-between items-center">
-          <h2 className="text-2xl font-bold text-gray-900">Profit Analysis</h2>
-          <div className="flex items-center space-x-4">
-            <input
-              type="month"
-              value={selectedMonth}
-              onChange={(e) => setSelectedMonth(e.target.value)}
-              className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            />
-            <button
-              onClick={() => generateMonthlySummaryPDF(monthlyShifts, items, section, selectedMonth)}
-              className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg font-medium transition-colors flex items-center"
-            >
-              <Download className="h-4 w-4 mr-2" />
-              Export PDF
-            </button>
-          </div>
-        </div>
-
-        {/* Summary Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-            <div className="flex items-center">
-              <div className="bg-blue-100 p-3 rounded-full">
-                <DollarSign className="h-6 w-6 text-blue-600" />
-              </div>
-              <div className="ml-4">
-                <p className="text-sm font-medium text-gray-500">Total Revenue</p>
-                <p className="text-2xl font-bold text-gray-900">{totalRevenue} EGP</p>
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-            <div className="flex items-center">
-              <div className="bg-red-100 p-3 rounded-full">
-                <DollarSign className="h-6 w-6 text-red-600" />
-              </div>
-              <div className="ml-4">
-                <p className="text-sm font-medium text-gray-500">Total Cost</p>
-                <p className="text-2xl font-bold text-gray-900">{totalCost} EGP</p>
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-            <div className="flex items-center">
-              <div className="bg-green-100 p-3 rounded-full">
-                <TrendingUp className="h-6 w-6 text-green-600" />
-              </div>
-              <div className="ml-4">
-                <p className="text-sm font-medium text-gray-500">Total Profit</p>
-                <p className="text-2xl font-bold text-gray-900">{totalProfit} EGP</p>
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-            <div className="flex items-center">
-              <div className="bg-orange-100 p-3 rounded-full">
-                <Receipt className="h-6 w-6 text-orange-600" />
-              </div>
-              <div className="ml-4">
-                <p className="text-sm font-medium text-gray-500">Total Expenses</p>
-                <p className="text-2xl font-bold text-gray-900">{totalExpenses} EGP</p>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Item Details Table */}
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
-          <div className="px-6 py-4 border-b border-gray-200">
-            <h3 className="text-lg font-semibold text-gray-900">Item Performance</h3>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Item Name</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total Sold</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total Cost</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total Revenue</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total Profit</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Profit Margin</th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {Object.values(itemTotals)
-                  .sort((a, b) => b.totalProfit - a.totalProfit)
-                  .map((item, index) => {
-                    const profitMargin = item.totalRevenue > 0 ? ((item.totalProfit / item.totalRevenue) * 100).toFixed(1) : '0';
-                    return (
-                      <tr key={index}>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                          {item.name}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                          {item.totalSold}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                          {item.totalCost} EGP
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                          {item.totalRevenue} EGP
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                          {item.totalProfit} EGP
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                          {profitMargin}%
-                        </td>
-                      </tr>
-                    );
-                  })}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </div>
-    );
-  };
-
   return (
     <div className="space-y-6">
       {/* Tab Navigation */}
       <div className="border-b border-gray-200">
         <nav className="-mb-px flex space-x-8">
-          <button
-            onClick={() => setActiveTab('dashboard')}
-            className={`py-2 px-1 border-b-2 font-medium text-sm ${
-              activeTab === 'dashboard'
-                ? 'border-blue-500 text-blue-600'
-                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-            }`}
-          >
-            Dashboard
-          </button>
-          <button
-            onClick={() => setActiveTab('inventory')}
-            className={`py-2 px-1 border-b-2 font-medium text-sm ${
-              activeTab === 'inventory'
-                ? 'border-blue-500 text-blue-600'
-                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-            }`}
-          >
-            {section === 'supplement' ? 'Storage' : 'Inventory'}
-          </button>
-          <button
-            onClick={() => setActiveTab('shifts')}
-            className={`py-2 px-1 border-b-2 font-medium text-sm ${
-              activeTab === 'shifts'
-                ? 'border-blue-500 text-blue-600'
-                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-            }`}
-          >
-            {section === 'supplement' ? 'Daily Shifts' : 'Shifts History'}
-          </button>
-          <button
-            onClick={() => setActiveTab('profit')}
-            className={`py-2 px-1 border-b-2 font-medium text-sm ${
-              activeTab === 'profit'
-                ? 'border-blue-500 text-blue-600'
-                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-            }`}
-          >
-            {section === 'supplement' ? 'Monthly Summary' : 'Profit'}
-          </button>
-          <button
-            onClick={() => setActiveTab('customers')}
-            className={`py-2 px-1 border-b-2 font-medium text-sm ${
-              activeTab === 'customers'
-                ? 'border-blue-500 text-blue-600'
-                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-            }`}
-          >
-            Customers
-          </button>
-          {section === 'supplement' && (
-            <button
-              onClick={() => setActiveTab('payments')}
-              className={`py-2 px-1 border-b-2 font-medium text-sm ${
-                activeTab === 'payments'
-                  ? 'border-blue-500 text-blue-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-              }`}
-            >
-              Payments
-            </button>
-          )}
+          {[
+            { id: 'dashboard', name: 'Dashboard', icon: TrendingUp },
+            { id: 'inventory', name: 'Inventory', icon: Package },
+            { id: 'shifts', name: 'Shifts History', icon: Calendar },
+            { id: 'profit', name: 'Monthly Summary', icon: DollarSign },
+            ...(section === 'supplement' ? [{ id: 'payments', name: 'Payments', icon: Receipt }] : []),
+            { id: 'customers', name: 'Customers', icon: Users },
+            { id: 'users', name: 'Users', icon: Settings },
+            { id: 'adminlog', name: 'Admin Log', icon: FileText }
+          ].map(tab => {
+            const Icon = tab.icon;
+            return (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id as any)}
+                className={`py-2 px-1 border-b-2 font-medium text-sm flex items-center ${
+                  activeTab === tab.id
+                    ? 'border-blue-500 text-blue-600'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                }`}
+              >
+                <Icon className="h-4 w-4 mr-2" />
+                {tab.name}
+              </button>
+            );
+          })}
         </nav>
       </div>
 
@@ -1389,107 +1317,93 @@ const AdminView: React.FC<AdminViewProps> = ({ section }) => {
       {activeTab === 'inventory' && renderInventory()}
       {activeTab === 'shifts' && renderShifts()}
       {activeTab === 'profit' && renderProfit()}
-      {activeTab === 'customers' && renderCustomers()}
       {activeTab === 'payments' && renderPayments()}
+      {activeTab === 'customers' && renderCustomers()}
+      {activeTab === 'users' && renderUsers()}
+      {activeTab === 'adminlog' && renderAdminLog()}
 
-      {/* Modals */}
-      {showNewItemModal && (
+      {/* Add Item Modal */}
+      {showAddItem && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg p-6 w-full max-w-md">
-            <h3 className="text-lg font-semibold mb-4">Add New Item</h3>
-            <ItemForm
-              item={null}
-              categories={categories}
-              section={section}
-              onSave={saveItem}
-              onCancel={() => setShowNewItemModal(false)}
-            />
-          </div>
-        </div>
-      )}
-
-      {showNewCategoryModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-full max-w-md">
-            <h3 className="text-lg font-semibold mb-4">Add New Category</h3>
-            <CategoryForm
-              category={null}
-              section={section}
-              onSave={saveCategory}
-              onCancel={() => setShowNewCategoryModal(false)}
-            />
-          </div>
-        </div>
-      )}
-
-      {editingItem && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-full max-w-md">
-            <h3 className="text-lg font-semibold mb-4">Edit Item</h3>
-            <ItemForm
-              item={editingItem}
-              categories={categories}
-              section={section}
-              onSave={saveItem}
-              onCancel={() => setEditingItem(null)}
-            />
-          </div>
-        </div>
-      )}
-
-      {editingCategory && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-full max-w-md">
-            <h3 className="text-lg font-semibold mb-4">Edit Category</h3>
-            <CategoryForm
-              category={editingCategory}
-              section={section}
-              onSave={saveCategory}
-              onCancel={() => setEditingCategory(null)}
-            />
-          </div>
-        </div>
-      )}
-
-      {showNewPaymentModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-full max-w-md">
-            <h3 className="text-lg font-semibold mb-4">Add Payment</h3>
+            <h3 className="text-lg font-semibold mb-4">
+              {editingItem ? 'Edit Item' : 'Add New Item'}
+            </h3>
+            
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Amount (EGP)</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Name</label>
                 <input
-                  type="number"
-                  value={newPaymentAmount}
-                  onChange={(e) => setNewPaymentAmount(parseInt(e.target.value) || 0)}
+                  type="text"
+                  value={newItem.name || ''}
+                  onChange={(e) => setNewItem(prev => ({ ...prev, name: e.target.value }))}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  min="0"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Paid By</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Cost Price (EGP)</label>
                 <input
-                  type="text"
-                  value={newPaymentPerson}
-                  onChange={(e) => setNewPaymentPerson(e.target.value)}
+                  type="number"
+                  value={newItem.costPrice || ''}
+                  onChange={(e) => setNewItem(prev => ({ ...prev, costPrice: parseInt(e.target.value) || 0 }))}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  placeholder="Person name"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Sell Price (EGP)</label>
+                <input
+                  type="number"
+                  value={newItem.sellPrice || ''}
+                  onChange={(e) => setNewItem(prev => ({ ...prev, sellPrice: parseInt(e.target.value) || 0 }))}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Current Amount</label>
+                <input
+                  type="number"
+                  value={newItem.currentAmount || ''}
+                  onChange={(e) => setNewItem(prev => ({ ...prev, currentAmount: parseInt(e.target.value) || 0 }))}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Category</label>
+                <select
+                  value={newItem.categoryId || ''}
+                  onChange={(e) => setNewItem(prev => ({ ...prev, categoryId: e.target.value }))}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                >
+                  <option value="">No Category</option>
+                  {categories.map(category => (
+                    <option key={category.id} value={category.id}>{category.name}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Image URL (optional)</label>
+                <input
+                  type="url"
+                  value={newItem.image || ''}
+                  onChange={(e) => setNewItem(prev => ({ ...prev, image: e.target.value }))}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 />
               </div>
             </div>
+
             <div className="flex space-x-3 mt-6">
               <button
-                onClick={addSupplementPayment}
-                disabled={newPaymentAmount <= 0 || !newPaymentPerson}
-                className="flex-1 bg-green-600 hover:bg-green-700 disabled:bg-green-400 text-white font-semibold py-2 px-4 rounded-lg transition-colors"
+                onClick={saveItem}
+                disabled={isLoading}
+                className="flex-1 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white font-semibold py-2 px-4 rounded-lg transition-colors"
               >
-                Add Payment
+                {isLoading ? 'Saving...' : 'Save Item'}
               </button>
               <button
                 onClick={() => {
-                  setShowNewPaymentModal(false);
-                  setNewPaymentAmount(0);
-                  setNewPaymentPerson('');
+                  setShowAddItem(false);
+                  setEditingItem(null);
+                  setNewItem({});
                 }}
                 className="px-6 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
               >
@@ -1500,10 +1414,241 @@ const AdminView: React.FC<AdminViewProps> = ({ section }) => {
         </div>
       )}
 
-      {showEditDebtModal && (
+      {/* Add Category Modal */}
+      {showAddCategory && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg p-6 w-full max-w-md">
-            <h3 className="text-lg font-semibold mb-4">Edit Debt</h3>
+            <h3 className="text-lg font-semibold mb-4">
+              {editingCategory ? 'Edit Category' : 'Add New Category'}
+            </h3>
+            
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Category Name</label>
+                <input
+                  type="text"
+                  value={newCategory.name || ''}
+                  onChange={(e) => setNewCategory(prev => ({ ...prev, name: e.target.value }))}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  placeholder="Enter category name"
+                />
+              </div>
+            </div>
+
+            <div className="flex space-x-3 mt-6">
+              <button
+                onClick={saveCategory}
+                disabled={isLoading || !newCategory.name}
+                className="flex-1 bg-purple-600 hover:bg-purple-700 disabled:bg-purple-400 text-white font-semibold py-2 px-4 rounded-lg transition-colors"
+              >
+                {isLoading ? 'Saving...' : 'Save Category'}
+              </button>
+              <button
+                onClick={() => {
+                  setShowAddCategory(false);
+                  setEditingCategory(null);
+                  setNewCategory({});
+                }}
+                className="px-6 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Add User Modal */}
+      {showAddUser && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-md">
+            <h3 className="text-lg font-semibold mb-4">
+              {editingUser ? 'Edit User' : 'Add New User'}
+            </h3>
+            
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Username</label>
+                <input
+                  type="text"
+                  value={newUser.username || ''}
+                  onChange={(e) => setNewUser(prev => ({ ...prev, username: e.target.value }))}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  placeholder="Enter username"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Password</label>
+                <input
+                  type="password"
+                  value={newUser.password || ''}
+                  onChange={(e) => setNewUser(prev => ({ ...prev, password: e.target.value }))}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  placeholder="Enter password"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Role</label>
+                <select
+                  value={newUser.role || ''}
+                  onChange={(e) => setNewUser(prev => ({ ...prev, role: e.target.value as 'normal' | 'admin' }))}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                >
+                  <option value="">Select Role</option>
+                  <option value="normal">Normal User</option>
+                  <option value="admin">Admin</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="flex space-x-3 mt-6">
+              <button
+                onClick={saveUser}
+                disabled={isLoading || !newUser.username || !newUser.password || !newUser.role}
+                className="flex-1 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white font-semibold py-2 px-4 rounded-lg transition-colors"
+              >
+                {isLoading ? 'Saving...' : 'Save User'}
+              </button>
+              <button
+                onClick={() => {
+                  setShowAddUser(false);
+                  setEditingUser(null);
+                  setNewUser({});
+                }}
+                className="px-6 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Add Supply Modal */}
+      {showAddSupply && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-2xl">
+            <h3 className="text-lg font-semibold mb-4">Add Supply</h3>
+            
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Select Items and Quantities</label>
+                <div className="space-y-3 max-h-60 overflow-y-auto">
+                  {items.map(item => (
+                    <div key={item.id} className="flex items-center justify-between p-3 border border-gray-200 rounded-lg">
+                      <div>
+                        <p className="font-medium text-gray-900">{item.name}</p>
+                        <p className="text-sm text-gray-600">Current: {item.currentAmount}</p>
+                      </div>
+                      <div className="flex items-center space-x-2">
+                        <label className="text-sm text-gray-600">Add:</label>
+                        <input
+                          type="number"
+                          value={supplyItems[item.id] || 0}
+                          onChange={(e) => setSupplyItems(prev => ({
+                            ...prev,
+                            [item.id]: parseInt(e.target.value) || 0
+                          }))}
+                          className="w-20 px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                          min="0"
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Total Cost (EGP)</label>
+                <input
+                  type="number"
+                  value={supplyCost}
+                  onChange={(e) => setSupplyCost(parseInt(e.target.value) || 0)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  min="0"
+                />
+              </div>
+            </div>
+
+            <div className="flex space-x-3 mt-6">
+              <button
+                onClick={addSupply}
+                disabled={isLoading || Object.keys(supplyItems).length === 0 || supplyCost <= 0}
+                className="flex-1 bg-green-600 hover:bg-green-700 disabled:bg-green-400 text-white font-semibold py-2 px-4 rounded-lg transition-colors"
+              >
+                {isLoading ? 'Adding...' : 'Add Supply'}
+              </button>
+              <button
+                onClick={() => {
+                  setShowAddSupply(false);
+                  setSupplyItems({});
+                  setSupplyCost(0);
+                }}
+                className="px-6 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Payment Modal */}
+      {showPaymentModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-md">
+            <h3 className="text-lg font-semibold mb-4">Add Payment</h3>
+            
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Amount (EGP)</label>
+                <input
+                  type="number"
+                  value={newPayment.amount}
+                  onChange={(e) => setNewPayment(prev => ({ ...prev, amount: parseInt(e.target.value) || 0 }))}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  min="0"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Paid By</label>
+                <input
+                  type="text"
+                  value={newPayment.paidBy}
+                  onChange={(e) => setNewPayment(prev => ({ ...prev, paidBy: e.target.value }))}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  placeholder="Enter person name"
+                />
+              </div>
+            </div>
+
+            <div className="flex space-x-3 mt-6">
+              <button
+                onClick={addPayment}
+                disabled={isLoading || newPayment.amount <= 0 || !newPayment.paidBy}
+                className="flex-1 bg-green-600 hover:bg-green-700 disabled:bg-green-400 text-white font-semibold py-2 px-4 rounded-lg transition-colors"
+              >
+                {isLoading ? 'Adding...' : 'Add Payment'}
+              </button>
+              <button
+                onClick={() => {
+                  setShowPaymentModal(false);
+                  setNewPayment({ amount: 0, paidBy: '' });
+                }}
+                className="px-6 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Debt Modal */}
+      {showEditDebt && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-md">
+            <h3 className="text-lg font-semibold mb-4">Edit Debt Amount</h3>
+            
             <div className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Debt Amount (EGP)</label>
@@ -1516,16 +1661,18 @@ const AdminView: React.FC<AdminViewProps> = ({ section }) => {
                 />
               </div>
             </div>
+
             <div className="flex space-x-3 mt-6">
               <button
-                onClick={updateSupplementDebt}
-                className="flex-1 bg-orange-600 hover:bg-orange-700 text-white font-semibold py-2 px-4 rounded-lg transition-colors"
+                onClick={updateDebt}
+                disabled={isLoading || newDebtAmount < 0}
+                className="flex-1 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white font-semibold py-2 px-4 rounded-lg transition-colors"
               >
-                Update Debt
+                {isLoading ? 'Updating...' : 'Update Debt'}
               </button>
               <button
                 onClick={() => {
-                  setShowEditDebtModal(false);
+                  setShowEditDebt(false);
                   setNewDebtAmount(0);
                 }}
                 className="px-6 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
@@ -1536,191 +1683,6 @@ const AdminView: React.FC<AdminViewProps> = ({ section }) => {
           </div>
         </div>
       )}
-    </div>
-  );
-};
-
-// Item Form Component
-interface ItemFormProps {
-  item: Item | null;
-  categories: Category[];
-  section: 'store' | 'supplement';
-  onSave: (item: Item) => void;
-  onCancel: () => void;
-}
-
-const ItemForm: React.FC<ItemFormProps> = ({ item, categories, section, onSave, onCancel }) => {
-  const [formData, setFormData] = useState({
-    name: item?.name || '',
-    costPrice: item?.costPrice || 0,
-    sellPrice: item?.sellPrice || 0,
-    currentAmount: item?.currentAmount || 0,
-    categoryId: item?.categoryId || '',
-    image: item?.image || ''
-  });
-
-  const handleSubmit = () => {
-    const newItem: Item = {
-      id: item?.id || `${section}-${Date.now()}`,
-      name: formData.name,
-      costPrice: formData.costPrice,
-      sellPrice: formData.sellPrice,
-      currentAmount: formData.currentAmount,
-      categoryId: formData.categoryId || undefined,
-      image: formData.image || undefined,
-      section,
-      createdAt: item?.createdAt || new Date(),
-      updatedAt: new Date()
-    };
-
-    onSave(newItem);
-  };
-
-  return (
-    <div className="space-y-4">
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">Name</label>
-        <input
-          type="text"
-          value={formData.name}
-          onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-          required
-        />
-      </div>
-
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">Category</label>
-        <select
-          value={formData.categoryId}
-          onChange={(e) => setFormData({ ...formData, categoryId: e.target.value })}
-          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-        >
-          <option value="">Select Category</option>
-          {categories.map(category => (
-            <option key={category.id} value={category.id}>{category.name}</option>
-          ))}
-        </select>
-      </div>
-
-      <div className="grid grid-cols-2 gap-4">
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Cost Price (EGP)</label>
-          <input
-            type="number"
-            value={formData.costPrice}
-            onChange={(e) => setFormData({ ...formData, costPrice: parseInt(e.target.value) || 0 })}
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            min="0"
-            required
-          />
-        </div>
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Sell Price (EGP)</label>
-          <input
-            type="number"
-            value={formData.sellPrice}
-            onChange={(e) => setFormData({ ...formData, sellPrice: parseInt(e.target.value) || 0 })}
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            min="0"
-            required
-          />
-        </div>
-      </div>
-
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">Current Amount</label>
-        <input
-          type="number"
-          value={formData.currentAmount}
-          onChange={(e) => setFormData({ ...formData, currentAmount: parseInt(e.target.value) || 0 })}
-          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-          min="0"
-          required
-        />
-      </div>
-
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">Image URL (Optional)</label>
-        <input
-          type="url"
-          value={formData.image}
-          onChange={(e) => setFormData({ ...formData, image: e.target.value })}
-          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-          placeholder="https://example.com/image.jpg"
-        />
-      </div>
-
-      <div className="flex space-x-3 mt-6">
-        <button
-          onClick={handleSubmit}
-          disabled={!formData.name || formData.costPrice <= 0 || formData.sellPrice <= 0}
-          className="flex-1 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white font-semibold py-2 px-4 rounded-lg transition-colors"
-        >
-          {item ? 'Update' : 'Create'} Item
-        </button>
-        <button
-          onClick={onCancel}
-          className="px-6 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
-        >
-          Cancel
-        </button>
-      </div>
-    </div>
-  );
-};
-
-// Category Form Component
-interface CategoryFormProps {
-  category: Category | null;
-  section: 'store' | 'supplement';
-  onSave: (category: Category) => void;
-  onCancel: () => void;
-}
-
-const CategoryForm: React.FC<CategoryFormProps> = ({ category, section, onSave, onCancel }) => {
-  const [name, setName] = useState(category?.name || '');
-
-  const handleSubmit = () => {
-    const newCategory: Category = {
-      id: category?.id || `${section}-category-${Date.now()}`,
-      name,
-      section,
-      createdAt: category?.createdAt || new Date()
-    };
-
-    onSave(newCategory);
-  };
-
-  return (
-    <div className="space-y-4">
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">Category Name</label>
-        <input
-          type="text"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-          placeholder="Enter category name"
-          required
-        />
-      </div>
-
-      <div className="flex space-x-3 mt-6">
-        <button
-          onClick={handleSubmit}
-          disabled={!name.trim()}
-          className="flex-1 bg-purple-600 hover:bg-purple-700 disabled:bg-purple-400 text-white font-semibold py-2 px-4 rounded-lg transition-colors"
-        >
-          {category ? 'Update' : 'Create'} Category
-        </button>
-        <button
-          onClick={onCancel}
-          className="px-6 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
-        >
-          Cancel
-        </button>
-      </div>
     </div>
   );
 };

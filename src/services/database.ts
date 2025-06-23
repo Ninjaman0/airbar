@@ -1,11 +1,11 @@
 import { 
   User, Item, Shift, Supply, Payment, DailySummary, MonthlySummary, 
-  SupplementDebt, Category, Customer, CustomerPurchase, Expense, ShiftEdit 
+  SupplementDebt, Category, Customer, CustomerPurchase, Expense, ShiftEdit, AdminLog 
 } from '../types';
 
 class DatabaseService {
   private dbName = 'StoreInventoryDB';
-  private version = 2;
+  private version = 3;
   private db: IDBDatabase | null = null;
 
   async init(): Promise<void> {
@@ -65,6 +65,14 @@ class DatabaseService {
         if (!db.objectStoreNames.contains('shiftEdits')) {
           const shiftEditStore = db.createObjectStore('shiftEdits', { keyPath: 'id' });
           shiftEditStore.createIndex('shiftId', 'shiftId');
+        }
+
+        // Admin logs store
+        if (!db.objectStoreNames.contains('adminLogs')) {
+          const adminLogStore = db.createObjectStore('adminLogs', { keyPath: 'id' });
+          adminLogStore.createIndex('timestamp', 'timestamp');
+          adminLogStore.createIndex('adminName', 'adminName');
+          adminLogStore.createIndex('section', 'section');
         }
 
         // Shifts store
@@ -133,6 +141,57 @@ class DatabaseService {
     return new Promise((resolve, reject) => {
       const request = index.get(username);
       request.onsuccess = () => resolve(request.result || null);
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  async getAllUsers(): Promise<User[]> {
+    const store = await this.getStore('users');
+    return new Promise((resolve, reject) => {
+      const request = store.getAll();
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  async updateUser(user: User): Promise<void> {
+    const store = await this.getStore('users', 'readwrite');
+    await new Promise((resolve, reject) => {
+      const request = store.put(user);
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  async deleteUser(id: string): Promise<void> {
+    const store = await this.getStore('users', 'readwrite');
+    await new Promise((resolve, reject) => {
+      const request = store.delete(id);
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  // Admin log operations
+  async saveAdminLog(log: AdminLog): Promise<void> {
+    const store = await this.getStore('adminLogs', 'readwrite');
+    await new Promise((resolve, reject) => {
+      const request = store.put(log);
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  async getAllAdminLogs(): Promise<AdminLog[]> {
+    const store = await this.getStore('adminLogs');
+    return new Promise((resolve, reject) => {
+      const request = store.getAll();
+      request.onsuccess = () => {
+        const logs = request.result.sort((a, b) => 
+          new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+        );
+        resolve(logs);
+      };
       request.onerror = () => reject(request.error);
     });
   }

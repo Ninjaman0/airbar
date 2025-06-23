@@ -44,6 +44,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
           const defaultAdmin: User = {
             id: 'admin-1',
             username: 'admin',
+            password: 'admin123',
             role: 'admin',
             createdAt: new Date()
           };
@@ -56,6 +57,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
           const defaultUser: User = {
             id: 'user-1',
             username: 'user',
+            password: 'user123',
             role: 'normal',
             createdAt: new Date()
           };
@@ -148,22 +150,12 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
   const login = async (username: string, password: string): Promise<boolean> => {
     try {
-      // Simple password check (in production, use proper authentication)
-      const validCredentials = [
-        { username: 'admin', password: 'admin123' },
-        { username: 'user', password: 'user123' }
-      ];
-
-      const credential = validCredentials.find(c => c.username === username && c.password === password);
-      if (!credential) return false;
-
       const user = await db.getUserByUsername(username);
-      if (user) {
+      if (user && user.password === password) {
         setUser(user);
         localStorage.setItem('currentUser', JSON.stringify(user));
         return true;
       }
-
       return false;
     } catch (error) {
       console.error('Login failed:', error);

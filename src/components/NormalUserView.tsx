@@ -38,6 +38,8 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
   const [customerTab, setCustomerTab] = useState<'today' | 'alltime'>('today');
   const [partialPaymentAmount, setPartialPaymentAmount] = useState<number>(0);
   const [showPartialPaymentModal, setShowPartialPaymentModal] = useState(false);
+  const [showCustomPaymentModal, setShowCustomPaymentModal] = useState(false);
+  const [customPaymentAmount, setCustomPaymentAmount] = useState<number>(0);
   const [selectedCustomerForPayment, setSelectedCustomerForPayment] = useState<Customer | null>(null);
   const [paymentType, setPaymentType] = useState<'today' | 'alltime'>('today');
 
@@ -310,7 +312,9 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
 
       await loadData();
       setShowPartialPaymentModal(false);
+      setShowCustomPaymentModal(false);
       setPartialPaymentAmount(0);
+      setCustomPaymentAmount(0);
       setSelectedCustomerForPayment(null);
     } catch (error) {
       console.error('Failed to pay customer debt:', error);
@@ -577,18 +581,32 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
             <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
               <h3 className="text-lg font-semibold text-gray-900">Today's Items</h3>
               {todayTotal > 0 && (
-                <button
-                  onClick={() => {
-                    setSelectedCustomerForPayment(selectedCustomer);
-                    setPaymentType('today');
-                    setPartialPaymentAmount(todayTotal);
-                    setShowPartialPaymentModal(true);
-                  }}
-                  disabled={isLoading}
-                  className="bg-green-600 hover:bg-green-700 disabled:bg-green-400 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
-                >
-                  Pay Debt
-                </button>
+                <div className="flex space-x-2">
+                  <button
+                    onClick={() => {
+                      setSelectedCustomerForPayment(selectedCustomer);
+                      setPaymentType('today');
+                      setPartialPaymentAmount(todayTotal);
+                      setShowPartialPaymentModal(true);
+                    }}
+                    disabled={isLoading}
+                    className="bg-green-600 hover:bg-green-700 disabled:bg-green-400 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+                  >
+                    Pay Debt
+                  </button>
+                  <button
+                    onClick={() => {
+                      setSelectedCustomerForPayment(selectedCustomer);
+                      setPaymentType('today');
+                      setCustomPaymentAmount(0);
+                      setShowCustomPaymentModal(true);
+                    }}
+                    disabled={isLoading}
+                    className="bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+                  >
+                    Pay Custom
+                  </button>
+                </div>
               )}
             </div>
             <div className="overflow-x-auto">
@@ -628,18 +646,32 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
             <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
               <h3 className="text-lg font-semibold text-gray-900">All-Time Items</h3>
               {allTimeTotal > 0 && (
-                <button
-                  onClick={() => {
-                    setSelectedCustomerForPayment(selectedCustomer);
-                    setPaymentType('alltime');
-                    setPartialPaymentAmount(allTimeTotal);
-                    setShowPartialPaymentModal(true);
-                  }}
-                  disabled={isLoading}
-                  className="bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
-                >
-                  Pay Debt
-                </button>
+                <div className="flex space-x-2">
+                  <button
+                    onClick={() => {
+                      setSelectedCustomerForPayment(selectedCustomer);
+                      setPaymentType('alltime');
+                      setPartialPaymentAmount(allTimeTotal);
+                      setShowPartialPaymentModal(true);
+                    }}
+                    disabled={isLoading}
+                    className="bg-green-600 hover:bg-green-700 disabled:bg-green-400 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+                  >
+                    Pay Debt
+                  </button>
+                  <button
+                    onClick={() => {
+                      setSelectedCustomerForPayment(selectedCustomer);
+                      setPaymentType('alltime');
+                      setCustomPaymentAmount(0);
+                      setShowCustomPaymentModal(true);
+                    }}
+                    disabled={isLoading}
+                    className="bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+                  >
+                    Pay Custom
+                  </button>
+                </div>
               )}
             </div>
             <div className="overflow-x-auto">
@@ -1132,6 +1164,63 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
                   onClick={() => {
                     setShowPartialPaymentModal(false);
                     setPartialPaymentAmount(0);
+                    setSelectedCustomerForPayment(null);
+                  }}
+                  className="px-6 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Custom Payment Modal */}
+        {showCustomPaymentModal && selectedCustomerForPayment && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-lg p-6 w-full max-w-md">
+              <h3 className="text-lg font-semibold mb-4">Custom Payment</h3>
+              
+              <div className="space-y-4">
+                <div>
+                  <p className="text-sm text-gray-600 mb-2">Customer: <span className="font-medium">{selectedCustomerForPayment.name}</span></p>
+                  <p className="text-sm text-gray-600 mb-4">
+                    {paymentType === 'today' ? "Today's" : "All-time"} debt: {
+                      paymentType === 'today' 
+                        ? customerPurchases.filter(cp => cp.customerId === selectedCustomerForPayment.id && !cp.isPaid && cp.shiftId === activeShift?.id).reduce((sum, cp) => sum + cp.totalAmount, 0)
+                        : customerPurchases.filter(cp => cp.customerId === selectedCustomerForPayment.id && !cp.isPaid).reduce((sum, cp) => sum + cp.totalAmount, 0)
+                    } EGP
+                  </p>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Custom Payment Amount (EGP)</label>
+                  <input
+                    type="number"
+                    value={customPaymentAmount}
+                    onChange={(e) => setCustomPaymentAmount(parseInt(e.target.value) || 0)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    min="0"
+                    max={paymentType === 'today' 
+                      ? customerPurchases.filter(cp => cp.customerId === selectedCustomerForPayment.id && !cp.isPaid && cp.shiftId === activeShift?.id).reduce((sum, cp) => sum + cp.totalAmount, 0)
+                      : customerPurchases.filter(cp => cp.customerId === selectedCustomerForPayment.id && !cp.isPaid).reduce((sum, cp) => sum + cp.totalAmount, 0)
+                    }
+                    placeholder="Enter custom amount"
+                  />
+                </div>
+              </div>
+
+              <div className="flex space-x-3 mt-6">
+                <button
+                  onClick={() => payCustomerDebt(selectedCustomerForPayment, customPaymentAmount, paymentType === 'today')}
+                  disabled={isLoading || customPaymentAmount <= 0}
+                  className="flex-1 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white font-semibold py-2 px-4 rounded-lg transition-colors"
+                >
+                  {isLoading ? 'Processing...' : 'Pay Custom Amount'}
+                </button>
+                <button
+                  onClick={() => {
+                    setShowCustomPaymentModal(false);
+                    setCustomPaymentAmount(0);
                     setSelectedCustomerForPayment(null);
                   }}
                   className="px-6 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"

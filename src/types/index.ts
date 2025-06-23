@@ -1,6 +1,7 @@
 export interface User {
   id: string;
   username: string;
+  password: string;
   role: 'normal' | 'admin';
   createdAt: Date;
 }
@@ -70,6 +71,16 @@ export interface ShiftEdit {
   reason: string;
   timestamp: Date;
   editedBy: string;
+}
+
+export interface AdminLog {
+  id: string;
+  actionType: string;
+  itemOrShiftAffected: string;
+  changeDetails: string;
+  timestamp: Date;
+  adminName: string;
+  section?: 'store' | 'supplement';
 }
 
 export interface Shift {
