@@ -19,7 +19,7 @@ interface AdminViewProps {
 
 const AdminView: React.FC<AdminViewProps> = ({ section }) => {
   const { user } = useAuth();
-  const [activeTab, setActiveTab] = useState<'لوحة التحكم' | 'المخزون' | 'shifts' | 'profit' | 'payments' | 'customers' | 'users' | 'adminlog'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'لوحة التحكم' | 'المخزون' | 'الوردياتالورديات' | 'profit' | 'payments' | 'customers' | 'users' | 'adminlog'>('dashboard');
   const [items, setItems] = useState<Item[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [shifts, setShifts] = useState<Shift[]>([]);
