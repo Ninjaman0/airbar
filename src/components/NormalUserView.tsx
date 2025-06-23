@@ -604,7 +604,7 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
                     disabled={isLoading}
                     className="bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
                   >
-                    Pay Custom
+                    سداد مخصص
                   </button>
                 </div>
               )}
