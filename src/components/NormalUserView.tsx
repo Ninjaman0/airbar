@@ -5,7 +5,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { Item, Shift, PurchaseItem, Customer, CustomerPurchase, Expense, Category } from '../types';
-import { db } from '../services/database';
+import { db_service } from '../services/database';
 
 interface NormalUserViewProps {
   section: 'store' | 'supplement';
@@ -54,11 +54,11 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
   const loadData = async () => {
     try {
       const [itemsData, categoriesData, shiftData, customersData, customerPurchasesData] = await Promise.all([
-        db.getItemsBySection(section),
-        db.getCategoriesBySection(section),
-        db.getActiveShift(section),
-        db.getCustomersBySection(section),
-        db.getUnpaidCustomerPurchases(section)
+        db_service.getItemsBySection(section),
+        db_service.getCategoriesBySection(section),
+        db_service.getActiveShift(section),
+        db_service.getCustomersBySection(section),
+        db_service.getUnpaidCustomerPurchases(section)
       ]);
       
       setItems(itemsData);
@@ -88,7 +88,7 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
     setIsLoading(true);
     try {
       // Get last shift's final cash to carry over
-      const lastShifts = await db.getShiftsBySection(section);
+      const lastShifts = await db_service.getShiftsBySection(section);
       const lastClosedShift = lastShifts.find(s => s.status === 'closed');
       const startingCash = lastClosedShift?.finalCash || 0;
 
@@ -105,7 +105,7 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
         validationStatus: 'balanced'
       };
 
-      await db.saveShift(newShift);
+      await db_service.saveShift(newShift);
       setActiveShift(newShift);
     } catch (error) {
       console.error('Failed to start shift:', error);
@@ -141,7 +141,7 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
     if (item) {
       item.currentAmount -= quantityToDeduct;
       item.updatedAt = new Date();
-      await db.saveItem(item);
+      await db_service.saveItem(item);
     }
   };
 
@@ -154,7 +154,7 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
 
       // Create new shift if none exists
       if (!shift) {
-        const lastShifts = await db.getShiftsBySection(section);
+        const lastShifts = await db_service.getShiftsBySection(section);
         const lastClosedShift = lastShifts.find(s => s.status === 'closed');
         const startingCash = lastClosedShift?.finalCash || 0;
 
@@ -186,7 +186,7 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
       shift.purchases.push(...newPurchases);
       shift.totalAmount += getCartTotal();
 
-      await db.saveShift(shift);
+      await db_service.saveShift(shift);
 
       // Update item stock
       for (const [itemId, quantity] of Object.entries(cart)) {
@@ -224,7 +224,7 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
           section,
           createdAt: new Date()
         };
-        await db.saveCustomer(customer);
+        await db_service.saveCustomer(customer);
       }
 
       if (!customer) return;
@@ -252,7 +252,7 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
         timestamp: new Date()
       };
 
-      await db.saveCustomerPurchase(customerPurchase);
+      await db_service.saveCustomerPurchase(customerPurchase);
 
       // Update item stock
       for (const [itemId, quantity] of Object.entries(cart)) {
@@ -296,18 +296,18 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
           purchase.isPaid = true;
           remainingAmount -= purchase.totalAmount;
           paidPurchases.push(purchase);
-          await db.saveCustomerPurchase(purchase);
+          await db_service.saveCustomerPurchase(purchase);
         } else {
           // Partial payment - reduce the purchase amount
           purchase.totalAmount -= remainingAmount;
           remainingAmount = 0;
-          await db.saveCustomerPurchase(purchase);
+          await db_service.saveCustomerPurchase(purchase);
         }
       }
 
       // Add paid amount to current shift
       activeShift.totalAmount += (amount - remainingAmount);
-      await db.saveShift(activeShift);
+      await db_service.saveShift(activeShift);
       setActiveShift({ ...activeShift });
 
       await loadData();
@@ -335,7 +335,7 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
       activeShift.expenses = activeShift.expenses.filter(e => e.id !== expenseId);
       activeShift.totalAmount += expense.amount; // Return money to cashier balance
       
-      await db.saveShift(activeShift);
+      await db_service.saveShift(activeShift);
       setActiveShift({ ...activeShift });
     } catch (error) {
       console.error('Failed to remove expense:', error);
@@ -365,12 +365,12 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
         createdBy: user.username
       };
 
-      await db.saveExpense(expense);
+      await db_service.saveExpense(expense);
 
       // Update shift
       activeShift.expenses.push(expense);
       activeShift.totalAmount -= expenseAmount; // Deduct from cash
-      await db.saveShift(activeShift);
+      await db_service.saveShift(activeShift);
 
       setActiveShift({ ...activeShift });
       setShowExpenseModal(false);
@@ -451,7 +451,7 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
         activeShift.closeReason = closeReason;
       }
 
-      await db.saveShift(activeShift);
+      await db_service.saveShift(activeShift);
 
       // Update item amounts
       Object.entries(inventoryInputs).forEach(async ([itemId, amount]) => {
@@ -459,7 +459,7 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
         if (item) {
           item.currentAmount = amount;
           item.updatedAt = new Date();
-          await db.saveItem(item);
+          await db_service.saveItem(item);
         }
       });
 

@@ -6,7 +6,7 @@ import {
   Calendar, CheckCircle, XCircle, RefreshCw, Upload, Image
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
-import { db } from '../services/database';
+import { db_service } from '../services/database';
 import { 
   Item, User as UserType, AdminLog, Shift, Customer, 
   CustomerPurchase, Supply, SupplementDebt, PurchaseItem, Expense 
@@ -87,14 +87,14 @@ const AdminView: React.FC<{ section: 'store' | 'supplement' }> = ({ section }) =
         activeShift,
         debtData
       ] = await Promise.all([
-        db.getItemsBySection(section),
-        db.getAllUsers(),
-        db.getAllAdminLogs(),
-        db.getShiftsBySection(section),
-        db.getCustomersBySection(section),
-        db.getUnpaidCustomerPurchases(section),
-        db.getActiveShift(section),
-        section === 'supplement' ? db.getSupplementDebt() : Promise.resolve(null)
+        db_service.getItemsBySection(section),
+        db_service.getAllUsers(),
+        db_service.getAllAdminLogs(),
+        db_service.getShiftsBySection(section),
+        db_service.getCustomersBySection(section),
+        db_service.getUnpaidCustomerPurchases(section),
+        db_service.getActiveShift(section),
+        section === 'supplement' ? db_service.getSupplementDebt() : Promise.resolve(null)
       ]);
 
       setItems(itemsData);
@@ -122,7 +122,7 @@ const AdminView: React.FC<{ section: 'store' | 'supplement' }> = ({ section }) =
       adminName: user?.username || 'مجهول',
       section
     };
-    await db.saveAdminLog(log);
+    await db_service.saveAdminLog(log);
   };
 
   // Image handling functions
@@ -165,7 +165,7 @@ const AdminView: React.FC<{ section: 'store' | 'supplement' }> = ({ section }) =
       updatedAt: new Date()
     };
 
-    await db.saveItem(item);
+    await db_service.saveItem(item);
     await logAdminAction('إضافة صنف', newItem.name, `تم إضافة صنف جديد: ${newItem.name}`);
     
     setNewItem({ name: '', sellPrice: 0, costPrice: 0, currentAmount: 0, image: '' });
@@ -184,7 +184,7 @@ const AdminView: React.FC<{ section: 'store' | 'supplement' }> = ({ section }) =
       updatedAt: new Date()
     };
 
-    await db.saveItem(updatedItem);
+    await db_service.saveItem(updatedItem);
     await logAdminAction('تعديل صنف', editingItem.name, `تم تعديل الصنف: ${editingItem.name}`);
     
     setEditingItem(null);
@@ -193,7 +193,7 @@ const AdminView: React.FC<{ section: 'store' | 'supplement' }> = ({ section }) =
 
   const handleDeleteItem = async (item: Item) => {
     if (window.confirm(`هل أنت متأكد من حذف "${item.name}"؟`)) {
-      await db.deleteItem(item.id);
+      await db_service.deleteItem(item.id);
       await logAdminAction('حذف صنف', item.name, `تم حذف الصنف: ${item.name}`);
       loadData();
     }
@@ -210,7 +210,7 @@ const AdminView: React.FC<{ section: 'store' | 'supplement' }> = ({ section }) =
       createdAt: new Date()
     };
 
-    await db.createUser(userObj);
+    await db_service.createUser(userObj);
     await logAdminAction('إضافة مستخدم', newUser.username, `تم إضافة مستخدم جديد: ${newUser.username}`);
     
     setNewUser({ username: '', password: '', role: 'normal' });
@@ -221,7 +221,7 @@ const AdminView: React.FC<{ section: 'store' | 'supplement' }> = ({ section }) =
   const handleEditUser = async () => {
     if (!editingUser) return;
 
-    await db.updateUser(editingUser);
+    await db_service.updateUser(editingUser);
     await logAdminAction('تعديل مستخدم', editingUser.username, `تم تعديل المستخدم: ${editingUser.username}`);
     
     setEditingUser(null);
@@ -235,7 +235,7 @@ const AdminView: React.FC<{ section: 'store' | 'supplement' }> = ({ section }) =
     }
     
     if (window.confirm(`هل أنت متأكد من حذف المستخدم "${userToDelete.username}"؟`)) {
-      await db.deleteUser(userToDelete.id);
+      await db_service.deleteUser(userToDelete.id);
       await logAdminAction('حذف مستخدم', userToDelete.username, `تم حذف المستخدم: ${userToDelete.username}`);
       loadData();
     }
@@ -256,7 +256,7 @@ const AdminView: React.FC<{ section: 'store' | 'supplement' }> = ({ section }) =
       createdBy: user?.username || 'مجهول'
     };
 
-    await db.saveSupply(supply);
+    await db_service.saveSupply(supply);
 
     // Update item quantities
     for (const [itemId, quantity] of Object.entries(supplyItems)) {
@@ -267,7 +267,7 @@ const AdminView: React.FC<{ section: 'store' | 'supplement' }> = ({ section }) =
           currentAmount: item.currentAmount + quantity,
           updatedAt: new Date()
         };
-        await db.saveItem(updatedItem);
+        await db_service.saveItem(updatedItem);
       }
     }
 
@@ -297,7 +297,7 @@ const AdminView: React.FC<{ section: 'store' | 'supplement' }> = ({ section }) =
       validationStatus: 'balanced'
     };
 
-    await db.saveShift(shift);
+    await db_service.saveShift(shift);
     await logAdminAction('بدء وردية', shift.id, `تم بدء وردية جديدة`);
     loadData();
   };
@@ -330,8 +330,8 @@ const AdminView: React.FC<{ section: 'store' | 'supplement' }> = ({ section }) =
       updatedAt: new Date()
     };
 
-    await db.saveShift(updatedShift);
-    await db.saveItem(updatedItem);
+    await db_service.saveShift(updatedShift);
+    await db_service.saveItem(updatedItem);
     
     setNewPurchase({ itemId: '', quantity: 1, price: 0 });
     loadData();
@@ -356,8 +356,8 @@ const AdminView: React.FC<{ section: 'store' | 'supplement' }> = ({ section }) =
       totalAmount: currentShift.totalAmount - expense.amount
     };
 
-    await db.saveShift(updatedShift);
-    await db.saveExpense(expense);
+    await db_service.saveShift(updatedShift);
+    await db_service.saveExpense(expense);
     
     setNewExpense({ amount: 0, reason: '' });
     loadData();
@@ -375,7 +375,7 @@ const AdminView: React.FC<{ section: 'store' | 'supplement' }> = ({ section }) =
       totalAmount: currentShift.totalAmount + expense.amount
     };
 
-    await db.saveShift(updatedShift);
+    await db_service.saveShift(updatedShift);
     loadData();
   };
 
@@ -395,7 +395,7 @@ const AdminView: React.FC<{ section: 'store' | 'supplement' }> = ({ section }) =
       discrepancies: difference !== 0 ? [`فرق في النقدية: ${difference} جنيه`] : []
     };
 
-    await db.saveShift(updatedShift);
+    await db_service.saveShift(updatedShift);
     await logAdminAction('إغلاق وردية', currentShift.id, `تم إغلاق الوردية - النقدية المتوقعة: ${expectedCash}، الفعلية: ${actualCash}`);
     
     setManualCash(0);
@@ -414,7 +414,7 @@ const AdminView: React.FC<{ section: 'store' | 'supplement' }> = ({ section }) =
       updatedBy: user?.username || 'مجهول'
     };
 
-    await db.saveSupplementDebt(updatedDebt);
+    await db_service.saveSupplementDebt(updatedDebt);
     await logAdminAction('دفع دين المكملات', 'دين المكملات', `تم دفع ${debtPayment} جنيه - الدين المتبقي: ${newDebt} جنيه`);
     
     setDebtPayment(0);
@@ -431,7 +431,7 @@ const AdminView: React.FC<{ section: 'store' | 'supplement' }> = ({ section }) =
       createdAt: new Date()
     };
 
-    await db.saveCustomer(customer);
+    await db_service.saveCustomer(customer);
     await logAdminAction('إضافة عميل', newCustomer.name, `تم إضافة عميل جديد: ${newCustomer.name}`);
     
     setNewCustomer({ name: '' });
