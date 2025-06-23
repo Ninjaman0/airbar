@@ -1,9 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  Package, TrendingUp, History, Settings, Users, Receipt, 
-  Plus, Edit, Trash2, Save, X, DollarSign, FileText,
-  AlertCircle, CheckCircle, Clock, Store, Supplement
-} from 'lucide-react';
+import { Package, TrendingUp, History, Settings, Users, Receipt, Plus, Edit, Trash2, Save, X, DollarSign, FileText, AlertCircle, CheckCircle, Clock, Store, Apple as Supplement } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { Item, Shift, Supply, Category, Customer, CustomerPurchase, Expense, ShiftEdit } from '../types';
 import { db } from '../services/database';
