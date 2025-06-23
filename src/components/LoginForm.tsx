@@ -119,7 +119,7 @@ const LoginForm: React.FC = () => {
                 جاري تسجيل الدخول...
               </div>
             ) : (
-              'Sign In'
+              'تسجيل الدخول'
             )}
           </button>
         </form>
