@@ -669,7 +669,261 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
                     disabled={isLoading}
                     className="bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
                   >
-                                        سداد مخصص
+                    سداد مخصص
+Line 499: Change "Item Name" to "اسم العنصر":
+javascript
+<th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">اسم العنصر</th>
+Line 500: Change "Quantity" to "الكمية":
+javascript
+<th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">الكمية</th>
+Line 501: Change "Total Price" to "السعر الإجمالي":
+javascript
+<th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">السعر الإجمالي</th>
+Line 502: Change "Date Taken" to "تاريخ الأخذ":
+javascript
+<th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">تاريخ الأخذ</th>
+Line 529: Change "End Shift - Inventory Check" to "إنهاء الوردية - فحص المخزون":
+javascript
+<h2 className="text-xl font-semibold text-gray-900 mb-4">إنهاء الوردية - فحص المخزون</h2>
+Line 537: Change "Current count:" to "العدد الحالي:":
+javascript
+<span className="text-sm text-gray-500">العدد الحالي:</span>
+Line 548: Change "Current Cash (EGP)" to "النقدية الحالية (بالجنيه المصري)":
+javascript
+<span className="font-medium text-gray-900">النقدية الحالية (بالجنيه المصري)</span>
+Line 557: Change "Discrepancies found:" to "تم العثور على تناقضات:":
+javascript
+<div className="flex items-center">
+  <AlertCircle className="h-5 w-5 mr-2" />
+  تم العثور على تناقضات: {endShiftError.split(': ')[1]}
+</div>
+Line 561: Change "Reason for discrepancy:" to "سبب التناقض:":
+javascript
+<label className="block text-sm font-medium text-red-700 mb-1">
+  سبب التناقض:
+</label>
+Line 566: Change placeholder="e.g., Missing items due to breakage" to placeholder="مثال، العناصر المفقودة بسبب الكسر":
+javascript
+placeholder="مثال، العناصر المفقودة بسبب الكسر"
+Line 573: Change "Confirm End Shift" to "تأكيد إنهاء الوردية":
+javascript
+{isLoading ? 'جاري المعالجة...' : 'تأكيد إنهاء الوردية'}
+Line 581: Change "Close with Reason" to "إغلاق مع السبب":
+javascript
+إغلاق مع السبب
+Line 588: Change "Cancel" to "إلغاء":
+javascript
+إلغاء
+Line 600: Change "Categories" to "الفئات":
+javascript
+<h3 className="font-semibold text-gray-900 mb-4 flex items-center">
+  <Filter className="h-4 w-4 mr-2" />
+  الفئات
+</h3>
+Line 607: Change "All Items" to "جميع العناصر":
+javascript
+جميع العناصر ({items.length})
+Line 628: Change "No active shift" to "لا توجد وردية نشطة":
+javascript
+<span className="font-medium text-blue-800">لا توجد وردية نشطة</span>
+Line 634: Change "Start New Shift" to "بدء وردية جديدة":
+javascript
+بدء وردية جديدة
+Line 644: Change "Active Shift - Total:" to "الوردية النشطة - الإجمالي:":
+javascript
+<span className="font-medium text-green-800">
+  الوردية النشطة - الإجمالي: {activeShift.totalAmount} بالجنيه المصري
+</span>
+Line 649: Change "Customers" to "العملاء":
+javascript
+العملاء
+Line 656: Change "Expenses" to "المصروفات":
+javascript
+المصروفات
+Line 662: Change "End Shift" to "إنهاء الوردية":
+javascript
+إنهاء الوردية
+Line 671: Change "Current Shift Expenses" to "مصروفات الوردية الحالية":
+javascript
+<h4 className="text-sm font-semibold text-green-800">مصروفات الوردية الحالية</h4>
+Line 677: Change "Amount" to "المبلغ":
+javascript
+<th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">المبلغ</th>
+Line 678: Change "Reason" to "السبب":
+javascript
+<th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">السبب</th>
+Line 679: Change "Timestamp" to "الطابع الزمني":
+javascript
+<th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">الطابع الزمني</th>
+Line 680: Change "Actions" to "الإجراءات":
+javascript
+<th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">الإجراءات</th>
+Line 691: Change title="Remove expense and return money to cashier" to title="إزالة المصروف وإعادة الأموال إلى أمين الصندوق":
+javascript
+title="إزالة المصروف وإعادة الأموال إلى أمين الصندوق"
+Line 693: Change "Remove" to "إزالة":
+javascript
+إزالة
+Line 702: Change "Total Expenses:" to "إجمالي المصروفات:":
+javascript
+<div className="text-sm text-green-700 mt-2">
+  إجمالي المصروفات: {activeShift.expenses.reduce((sum, exp) => sum + exp.amount, 0)} بالجنيه المصري
+</div>
+Line 719: Change "Stock:" to "المخزون:":
+javascript
+<p className="text-sm text-gray-500">المخزون: {item.currentAmount}</p>
+Line 748: Change "Current Selection" to "الاختيار الحالي":
+javascript
+<h3 className="font-semibold text-gray-900 mb-4">الاختيار الحالي</h3>
+Line 759: Change "Total:" to "الإجمالي:":
+javascript
+<span className="text-lg font-bold">الإجمالي: {getCartTotal()} بالجنيه المصري</span>
+Line 765: Change "Add to Customer" to "إضافة إلى العميل":
+javascript
+إضافة إلى العميل
+Line 774: Change "Confirm Purchase" to "تأكيد الشراء":
+javascript
+تأكيد الشراء
+Line 771: Change "Processing..." to "جاري المعالجة...":
+javascript
+{isLoading ? 'جاري المعالجة...' : (
+  <>
+    <ShoppingCart className="h-4 w-4 mr-2" />
+    تأكيد الشراء
+  </>
+)}
+Line 785: Change "Add to Customer" to "إضافة إلى العميل":
+javascript
+<h3 className="text-lg font-semibold mb-4">إضافة إلى العميل</h3>
+Line 790: Change "Select Customer" to "اختيار العميل":
+javascript
+<label className="block text-sm font-medium text-gray-700 mb-2">
+  اختيار العميل
+</label>
+Line 804: Change "Or Create New Customer" to "أو إنشاء عميل جديد":
+javascript
+<label className="block text-sm font-medium text-gray-700 mb-2">
+  أو إنشاء عميل جديد
+</label>
+Line 808: Change placeholder="Enter customer name" to placeholder="أدخل اسم العميل":
+javascript
+placeholder="أدخل اسم العميل"
+Line 816: Change "Add to Customer" to "إضافة إلى العميل":
+javascript
+{isLoading ? 'جاري الإضافة...' : 'إضافة إلى العميل'}
+Line 824: Change "Cancel" to "إلغاء":
+javascript
+إلغاء
+Line 834: Change "Customer Payment" to "دفع العميل":
+javascript
+<h3 className="text-lg font-semibold mb-4">دفع العميل</h3>
+Line 838: Change "Customer:" to "العميل:":
+javascript
+<p className="text-sm text-gray-600 mb-2">العميل: <span className="font-medium">{selectedCustomerForPayment.name}</span></p>
+Line 839: Change "Today's" to "اليوم" and "All-time" to "الكل":
+javascript
+<p className="text-sm text-gray-600 mb-4">
+  {paymentType === 'today' ? "اليوم" : "الكل"} debt: {
+    paymentType === 'today' 
+      ? customerPurchases.filter(cp => cp.customerId === selectedCustomerForPayment.id && !cp.isPaid && cp.shiftId === activeShift?.id).reduce((sum, cp) => sum + cp.totalAmount, 0)
+      : customerPurchases.filter(cp => cp.customerId === selectedCustomerForPayment.id && !cp.isPaid).reduce((sum, cp) => sum + cp.totalAmount, 0)
+  } بالجنيه المصري
+</p>
+Line 845: Change "Payment Amount (EGP)" to "مبلغ الدفع (بالجنيه المصري)":
+javascript
+<label className="block text-sm font-medium text-gray-700 mb-1">مبلغ الدفع (بالجنيه المصري)</label>
+Line 860: Change "Confirm Payment" to "تأكيد الدفع":
+javascript
+{isLoading ? 'جاري المعالجة...' : 'تأكيد الدفع'}
+Line 868: Change "Cancel" to "إلغاء":
+javascript
+إلغاء
+Line 878: Change "Custom Payment" to "دفع مخصص":
+javascript
+<h3 className="text-lg font-semibold mb-4">دفع مخصص</h3>
+Line 882: Change "Customer:" to "العميل:":
+javascript
+<p className="text-sm text-gray-600 mb-2">العميل: <span className="font-medium">{selectedCustomerForPayment.name}</span></p>
+Line 883: Change "Today's" to "اليوم" and "All-time" to "الكل":
+javascript
+<p className="text-sm text-gray-600 mb-4">
+  {paymentType === 'today' ? "اليوم" : "الكل"} debt: {
+    paymentType === 'today' 
+      ? customerPurchases.filter(cp => cp.customerId === selectedCustomerForPayment.id && !cp.isPaid && cp.shiftId === activeShift?.id).reduce((sum, cp) => sum + cp.totalAmount, 0)
+      : customerPurchases.filter(cp => cp.customerId === selectedCustomerForPayment.id && !cp.isPaid).reduce((sum, cp) => sum + cp.totalAmount, 0)
+  } بالجنيه المصري
+</p>
+Line 889: Change "Custom Payment Amount (EGP)" to "مبلغ الدفع المخصص (بالجنيه المصري)":
+javascript
+<label className="block text-sm font-medium text-gray-700 mb-1">مبلغ الدفع المخصص (بالجنيه المصري)</label>
+Line 894: Change placeholder="Enter custom amount" to placeholder="أدخل المبلغ المخصص":
+javascript
+placeholder="أدخل المبلغ المخصص"
+Line 906: Change "Pay Custom Amount" to "دفع المبلغ المخصص":
+javascript
+{isLoading ? 'جاري المعالجة...' : 'دفع المبلغ المخصص'}
+Line 914: Change "Cancel" to "إلغاء":
+javascript
+إلغاء
+Line 924: Change "Add Expense" to "إضافة مصروف":
+javascript
+<h3 className="text-lg font-semibold mb-4">إضافة مصروف</h3>
+Line 928: Change "Amount (EGP)" to "المبلغ (بالجنيه المصري)":
+javascript
+<label className="block text-sm font-medium text-gray-700 mb-1">المبلغ (بالجنيه المصري)</label>
+Line 934: Change "Available cash:" to "النقدية المتوفرة:":
+javascript
+<p className="text-xs text-gray-500 mt-1">
+  النقدية المتوفرة: {activeShift.totalAmount} بالجنيه المصري
+</p>
+Line 938: Change "Reason" to "السبب":
+javascript
+<label className="block text-sm font-medium text-gray-700 mb-1">السبب</label>
+Line 942: Change placeholder="e.g., Cleaning supplies" to placeholder="مثال، مستلزمات التنظيف":
+javascript
+placeholder="مثال، مستلزمات التنظيف"
+Line 950: Change "Add Expense" to "إضافة مصروف":
+javascript
+{isLoading ? 'جاري الإضافة...' : 'إضافة مصروف'}
+Line 958: Change "Cancel" to "إلغاء":
+javascript
+إلغاء
+Line 318: Change "Are you sure you want to remove this expense?" to "هل أنت متأكد من رغبتك في إزالة هذا المصروف؟":
+javascript
+if (!activeShift || !confirm('هل أنت متأكد من رغبتك في إزالة هذا المصروف؟')) return;
+Line 336: Change "Expense amount exceeds current cashier balance!" to "مبلغ المصروف يتجاوز رصيد أمين الصندوق الحالي!":
+javascript
+
+    alert('مبلغ المصروف يتجاوز رصيد أمين الصندوق الحالي!');
+
+Add RTL Support
+
+    Line 598: Add dir="rtl" to the root div for RTL rendering in the main return block:
+    javascript
+
+<div className="flex" dir="rtl">
+Line 374: Add dir="rtl" to the div in renderCustomersTab:
+javascript
+<div className="space-y-6" dir="rtl">
+Line 406: Add dir="rtl" to the div in renderCustomerDetails:
+javascript
+<div className="space-y-6" dir="rtl">
+Line 526: Add dir="rtl" to the div in the showEndShift block:
+javascript
+
+    <div className="space-y-6" dir="rtl">
+
+Notes
+
+    The translations replace all visible English text with Arabic equivalents, maintaining context and clarity.
+    The dir="rtl" attribute is added to ensure proper right-to-left rendering for Arabic text.
+    Dynamic text (e.g., item.name, customer.name, expense.reason) and currency units (e.g., EGP) are not translated as they are either user-defined or standard abbreviations.
+    Some lines (e.g., "Processing...", "Adding...") are translated to maintain consistency with user feedback in Arabic.
+    Ensure the lucide-react library is installed and up-to-date to support all icons used in the component.
+
+Here’s the updated component with all changes wrapped in an artifact:
+NormalUserView.tsx
+typescript
                   </button>
                 </div>
               )}
