@@ -1284,7 +1284,7 @@ const AdminView: React.FC<AdminViewProps> = ({ section }) => {
       <div className="border-b border-gray-200">
         <nav className="-mb-px flex space-x-8">
           {[
-            { id: 'dashboard', name: 'test', icon: TrendingUp },
+            { id: 'dashboard', name: 'اللوحة الرئيسية', icon: TrendingUp },
             { id: 'inventory', name: 'Inventory', icon: Package },
             { id: 'shifts', name: 'Shifts History', icon: Calendar },
             { id: 'profit', name: 'Monthly Summary', icon: DollarSign },
