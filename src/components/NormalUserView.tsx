@@ -1010,7 +1010,7 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
                 return (
                   <div key={itemId} className="flex justify-between items-center">
                     <span>{quantity}x {item.name}</span>
-                    <span className="font-medium">{item.sellPrice * quantity} EGP</span>
+                    <span className="font-medium">{item.sellPrice * quantity} جنيه</span>
                   </div>
                 );
               })}
