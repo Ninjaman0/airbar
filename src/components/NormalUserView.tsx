@@ -1133,7 +1133,7 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
                       paymentType === 'today' 
                         ? customerPurchases.filter(cp => cp.customerId === selectedCustomerForPayment.id && !cp.isPaid && cp.shiftId === activeShift?.id).reduce((sum, cp) => sum + cp.totalAmount, 0)
                         : customerPurchases.filter(cp => cp.customerId === selectedCustomerForPayment.id && !cp.isPaid).reduce((sum, cp) => sum + cp.totalAmount, 0)
-                    } EGP
+                    } جنيه
                   </p>
                 </div>
                 <div>
