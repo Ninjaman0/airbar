@@ -963,7 +963,7 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
               <div className="flex justify-between items-start mb-4">
                 <div>
                   <h3 className="font-semibold text-gray-900">{item.name}</h3>
-                  <p className="text-lg font-bold text-blue-600">{item.sellPrice} EGP</p>
+                  <p className="text-lg font-bold text-blue-600">{item.sellPrice} جنيه</p>
                   <p className="text-sm text-gray-500">Stock: {item.currentAmount}</p>
                 </div>
                 {item.image && (
