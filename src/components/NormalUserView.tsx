@@ -1262,7 +1262,7 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
                     value={expenseReason}
                     onChange={(e) => setExpenseReason(e.target.value)}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    placeholder="e.g., Cleaning supplies"
+                    placeholder="e.g., Enter the reason !"
                   />
                 </div>
               </div>
