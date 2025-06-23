@@ -950,7 +950,7 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
             
             {activeShift.expenses.length > 0 && (
               <div className="text-sm text-green-700 mt-2">
-                Total Expenses: {activeShift.expenses.reduce((sum, exp) => sum + exp.amount, 0)} EGP
+                إجمالي المصروفات: {activeShift.expenses.reduce((sum, exp) => sum + exp.amount, 0)} جنيه
               </div>
             )}
           </div>
