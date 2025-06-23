@@ -1256,7 +1256,7 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
                   )}
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Reason</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">السبب</label>
                   <input
                     type="text"
                     value={expenseReason}
