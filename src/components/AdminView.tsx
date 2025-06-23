@@ -19,7 +19,7 @@ interface AdminViewProps {
 
 const AdminView: React.FC<AdminViewProps> = ({ section }) => {
   const { user } = useAuth();
-  const [activeTab, setActiveTab] = useState<'لوحة التحكم' | 'المخزون' | 'الورديات' | 'الربح' | 'المدفوعات' | 'العملاء' | ' ' | 'adminlog'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'inventory' | 'shifts' | 'profit' | 'payments' | 'customers' | 'users' | 'adminlog'>('dashboard');
   const [items, setItems] = useState<Item[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [shifts, setShifts] = useState<Shift[]>([]);
@@ -1284,7 +1284,7 @@ const AdminView: React.FC<AdminViewProps> = ({ section }) => {
       <div className="border-b border-gray-200">
         <nav className="-mb-px flex space-x-8">
           {[
-            { id: 'dashboard', name: 'Dashboard', icon: TrendingUp },
+            { id: 'dashboard', name: 'test', icon: TrendingUp },
             { id: 'inventory', name: 'Inventory', icon: Package },
             { id: 'shifts', name: 'Shifts History', icon: Calendar },
             { id: 'profit', name: 'Monthly Summary', icon: DollarSign },
