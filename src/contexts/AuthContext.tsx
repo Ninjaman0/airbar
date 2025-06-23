@@ -42,7 +42,7 @@ const FIXED_USERS: User[] = [
   {
     id: 'user-1',
     username: '3bdo',
-    password: 'user123',
+    password: 'boda121',
     role: 'normal',
     createdAt: new Date()
   }
