@@ -50,7 +50,7 @@ const LoginForm: React.FC = () => {
             <LogIn className="h-8 w-8 text-blue-600" />
           </div>
           <h1 className="text-2xl font-bold text-gray-900 mb-2">AIR BAR</h1>
-          <p className="text-gray-600">Sign in to your account</p>
+          <p className="text-gray-600">تسجيل الدخول إلى حسابك</p>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-6">
