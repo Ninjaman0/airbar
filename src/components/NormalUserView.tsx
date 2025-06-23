@@ -1129,7 +1129,7 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
                 <div>
                   <p className="text-sm text-gray-600 mb-2">العميل: <span className="font-medium">{selectedCustomerForPayment.name}</span></p>
                   <p className="text-sm text-gray-600 mb-4">
-                    {paymentType === 'today' ? "اليوم" : "All-time"} debt: {
+                    {paymentType === 'today' ? "اليوم" : "الكل"} debt: {
                       paymentType === 'today' 
                         ? customerPurchases.filter(cp => cp.customerId === selectedCustomerForPayment.id && !cp.isPaid && cp.shiftId === activeShift?.id).reduce((sum, cp) => sum + cp.totalAmount, 0)
                         : customerPurchases.filter(cp => cp.customerId === selectedCustomerForPayment.id && !cp.isPaid).reduce((sum, cp) => sum + cp.totalAmount, 0)
