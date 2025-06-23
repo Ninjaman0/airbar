@@ -1036,7 +1036,7 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
                   ) : (
                     <>
                       <ShoppingCart className="h-4 w-4 mr-2" />
-                      Confirm Purchase
+                      تأكيد الشراء
                     </>
                   )}
                 </button>
