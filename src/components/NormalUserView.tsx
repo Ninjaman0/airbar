@@ -629,7 +629,7 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
                           {item.quantity}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                          {item.price * item.quantity} EGP
+                          {item.price * item.quantity} جنيه
                         </td>
                       </tr>
                     ))
