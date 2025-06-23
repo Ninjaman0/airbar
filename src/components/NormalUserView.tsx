@@ -793,7 +793,7 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
                 disabled={isLoading || !closeReason}
                 className="flex-1 bg-orange-600 hover:bg-orange-700 disabled:bg-orange-400 text-white font-semibold py-2 px-4 rounded-lg transition-colors"
               >
-                Close with Reason
+                إغلاق مع السبب
               </button>
             )}
             <button
