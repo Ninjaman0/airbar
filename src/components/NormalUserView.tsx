@@ -922,7 +922,7 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
                       {activeShift.expenses.map(expense => (
                         <tr key={expense.id}>
                           <td className="px-4 py-2 whitespace-nowrap text-sm font-medium text-gray-900">
-                            {expense.amount} EGP
+                            {expense.amount} جنيه
                           </td>
                           <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-900">
                             {expense.reason}
