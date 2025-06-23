@@ -1,5 +1,5 @@
 import React from 'react';
-import { LogOut, Dumbbell, Package } from 'lucide-react';
+import { LogOut, Dumbbell, Store, Package } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
 interface LayoutProps {
@@ -33,7 +33,7 @@ const Layout: React.FC<LayoutProps> = ({ children, currentSection, onSectionChan
                       : 'text-gray-600 hover:text-gray-900'
                   }`}
                 >
-                  <Dumbbell className="h-4 w-4" />
+                  <Store className="h-4 w-4" />
                   <span>BAR</span>
                 </button>
                 <button
