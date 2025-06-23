@@ -1127,7 +1127,7 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
               
               <div className="space-y-4">
                 <div>
-                  <p className="text-sm text-gray-600 mb-2">Customer: <span className="font-medium">{selectedCustomerForPayment.name}</span></p>
+                  <p className="text-sm text-gray-600 mb-2">العميل: <span className="font-medium">{selectedCustomerForPayment.name}</span></p>
                   <p className="text-sm text-gray-600 mb-4">
                     {paymentType === 'today' ? "Today's" : "All-time"} debt: {
                       paymentType === 'today' 
