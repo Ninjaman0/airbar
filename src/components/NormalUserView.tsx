@@ -785,7 +785,7 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
               disabled={isLoading}
               className="flex-1 bg-green-600 hover:bg-green-700 disabled:bg-green-400 text-white font-semibold py-2 px-4 rounded-lg transition-colors"
             >
-              {isLoading ? 'Processing...' : 'Confirm End Shift'}
+              {isLoading ? 'جاري المعالجة...' : 'Confirm End Shift'}
             </button>
             {endShiftError && (
               <button
