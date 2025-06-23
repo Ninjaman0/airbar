@@ -1158,7 +1158,7 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
                   disabled={isLoading || partialPaymentAmount <= 0}
                   className="flex-1 bg-green-600 hover:bg-green-700 disabled:bg-green-400 text-white font-semibold py-2 px-4 rounded-lg transition-colors"
                 >
-                  {isLoading ? 'Processing...' : 'تأكيد الدفع'}
+                  {isLoading ? 'جاري المعالجة...' : 'تأكيد الدفع'}
                 </button>
                 <button
                   onClick={() => {
