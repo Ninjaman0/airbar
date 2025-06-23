@@ -57,7 +57,7 @@ const Layout: React.FC<LayoutProps> = ({ children, currentSection, onSectionChan
                 <button
                   onClick={logout}
                   className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
-                  title="Logout"
+                  title="تـسجيل خـروج"
                 >
                   <LogOut className="h-5 w-5" />
                 </button>
