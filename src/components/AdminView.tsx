@@ -14,7 +14,7 @@ import { db } from '../services/database';
 import { generateShiftsPDF, generateMonthlySummaryPDF } from '../utils/pdfGenerator';
 
 interface AdminViewProps {
-  section: 'store' | 'supplement';
+  section: 'Bar' | 'supplement';
 }
 
 const AdminView: React.FC<AdminViewProps> = ({ section }) => {
