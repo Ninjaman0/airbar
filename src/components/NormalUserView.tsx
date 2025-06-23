@@ -560,7 +560,7 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
                   : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
               }`}
             >
-              Today's Items ({todayTotal} EGP)
+              Today's Items ({todayTotal} جنيه)
             </button>
             <button
               onClick={() => setCustomerTab('alltime')}
@@ -570,7 +570,7 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
                   : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
               }`}
             >
-              All-Time Items ({allTimeTotal} EGP)
+              All-Time Items ({allTimeTotal} حنيه)
             </button>
           </nav>
         </div>
