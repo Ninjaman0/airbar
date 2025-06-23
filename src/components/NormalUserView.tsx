@@ -1251,7 +1251,7 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
                   />
                   {activeShift && (
                     <p className="text-xs text-gray-500 mt-1">
-                      Available cash: {activeShift.totalAmount} EGP
+                      النقدية cash: {activeShift.totalAmount} EGP
                     </p>
                   )}
                 </div>
