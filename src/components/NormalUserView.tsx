@@ -1102,7 +1102,7 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
                   disabled={isLoading || (!selectedCustomerForModal && !newCustomerName)}
                   className="flex-1 bg-purple-600 hover:bg-purple-700 disabled:bg-purple-400 text-white font-semibold py-2 px-4 rounded-lg transition-colors"
                 >
-                  {isLoading ? 'Adding...' : 'Add to Customer'}
+                  {isLoading ? 'جاري الإضافة...' : 'Add to Customer'}
                 </button>
                 <button
                   onClick={() => {
