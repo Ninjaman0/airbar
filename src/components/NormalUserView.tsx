@@ -748,7 +748,7 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
           </div>
 
           <div className="flex items-center justify-between py-3 border-b border-gray-100 mb-6">
-            <span className="font-medium text-gray-900">Current Cash (EGP)</span>
+            <span className="font-medium text-gray-900">النقدية الحالية(EGP)</span>
             <input
               type="number"
               value={cashInput}
