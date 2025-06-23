@@ -126,7 +126,7 @@ const LoginForm: React.FC = () => {
 
         <div className="mt-6 text-center">
           <p className="text-xs text-gray-500">
-            Secure login with encrypted credent
+            AirGYM bar System if you have found it by mistake you can fuckoff :)
           </p>
         </div>
       </div>
