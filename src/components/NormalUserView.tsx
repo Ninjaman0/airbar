@@ -862,7 +862,7 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
                 className="bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors flex items-center"
               >
                 <Play className="h-4 w-4 mr-2" />
-                Start New Shift
+                بدء وردية جديدة
               </button>
             </div>
           </div>
