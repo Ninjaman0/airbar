@@ -1285,7 +1285,7 @@ const AdminView: React.FC<AdminViewProps> = ({ section }) => {
         <nav className="-mb-px flex space-x-8">
           {[
             { id: 'dashboard', name: 'اللوحة الرئيسية', icon: TrendingUp },
-            { id: 'inventory', name: 'Inventory', icon: Package },
+            { id: 'inventory', name: 'المخزون', icon: Package },
             { id: 'shifts', name: 'Shifts History', icon: Calendar },
             { id: 'profit', name: 'Monthly Summary', icon: DollarSign },
             ...(section === 'supplement' ? [{ id: 'payments', name: 'Payments', icon: Receipt }] : []),
