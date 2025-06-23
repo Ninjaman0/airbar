@@ -1273,7 +1273,7 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
                   disabled={isLoading || expenseAmount <= 0 || !expenseReason || (activeShift && expenseAmount > activeShift.totalAmount)}
                   className="flex-1 bg-orange-600 hover:bg-orange-700 disabled:bg-orange-400 text-white font-semibold py-2 px-4 rounded-lg transition-colors"
                 >
-                  {isLoading ? 'Adding...' : 'Add Expense'}
+                  {isLoading ? 'Adding...' : 'إضافة مصروف'}
                 </button>
                 <button
                   onClick={() => {
