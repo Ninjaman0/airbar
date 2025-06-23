@@ -1215,7 +1215,7 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
                   disabled={isLoading || customPaymentAmount <= 0}
                   className="flex-1 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white font-semibold py-2 px-4 rounded-lg transition-colors"
                 >
-                  {isLoading ? 'Processing...' : 'Pay Custom Amount'}
+                  {isLoading ? 'جاري المعالجة...' : 'دفع المبلغ المخصص''}
                 </button>
                 <button
                   onClick={() => {
