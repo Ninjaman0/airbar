@@ -34,7 +34,7 @@ const Layout: React.FC<LayoutProps> = ({ children, currentSection, onSectionChan
                   }`}
                 >
                   <Store className="h-4 w-4" />
-                  <span>Store</span>
+                  <span>BAR</span>
                 </button>
                 <button
                   onClick={() => onSectionChange('supplement')}
