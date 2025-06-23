@@ -1054,7 +1054,7 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
               <div className="space-y-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Select Customer
+                    اختيار العميل
                   </label>
                   <div className="space-y-2 max-h-40 overflow-y-auto">
                     {selectedCustomerForModal && (
