@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { 
   Plus, Minus, ShoppingCart, Clock, AlertCircle, CheckCircle, 
-  Play, DollarSign, Users, Receipt 
+  Play, DollarSign, Users, Receipt, Filter, X
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
-import { Item, Shift, PurchaseItem, Customer, CustomerPurchase, Expense } from '../types';
+import { Item, Shift, PurchaseItem, Customer, CustomerPurchase, Expense, Category } from '../types';
 import { db } from '../services/database';
 
 interface NormalUserViewProps {
@@ -14,37 +14,52 @@ interface NormalUserViewProps {
 const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
   const { user } = useAuth();
   const [items, setItems] = useState<Item[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [filteredItems, setFilteredItems] = useState<Item[]>([]);
+  const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [activeShift, setActiveShift] = useState<Shift | null>(null);
   const [customers, setCustomers] = useState<Customer[]>([]);
+  const [customerPurchases, setCustomerPurchases] = useState<CustomerPurchase[]>([]);
   const [cart, setCart] = useState<Record<string, number>>({});
   const [isLoading, setIsLoading] = useState(false);
   const [showEndShift, setShowEndShift] = useState(false);
   const [showCustomerModal, setShowCustomerModal] = useState(false);
   const [showExpenseModal, setShowExpenseModal] = useState(false);
+  const [showCustomersTab, setShowCustomersTab] = useState(false);
+  const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
+  const [selectedCustomerForModal, setSelectedCustomerForModal] = useState<Customer | null>(null);
   const [inventoryInputs, setInventoryInputs] = useState<Record<string, number>>({});
   const [cashInput, setCashInput] = useState<number>(0);
   const [endShiftError, setEndShiftError] = useState<string>('');
   const [closeReason, setCloseReason] = useState<string>('');
   const [newCustomerName, setNewCustomerName] = useState<string>('');
-  const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
   const [expenseAmount, setExpenseAmount] = useState<number>(0);
   const [expenseReason, setExpenseReason] = useState<string>('');
+  const [customerTab, setCustomerTab] = useState<'today' | 'alltime'>('today');
 
   useEffect(() => {
     loadData();
   }, [section]);
 
+  useEffect(() => {
+    filterItems();
+  }, [items, selectedCategory]);
+
   const loadData = async () => {
     try {
-      const [itemsData, shiftData, customersData] = await Promise.all([
+      const [itemsData, categoriesData, shiftData, customersData, customerPurchasesData] = await Promise.all([
         db.getItemsBySection(section),
+        db.getCategoriesBySection(section),
         db.getActiveShift(section),
-        db.getCustomersBySection(section)
+        db.getCustomersBySection(section),
+        db.getUnpaidCustomerPurchases(section)
       ]);
       
       setItems(itemsData);
+      setCategories(categoriesData);
       setActiveShift(shiftData);
       setCustomers(customersData);
+      setCustomerPurchases(customerPurchasesData);
       setCart({});
       setShowEndShift(false);
       setEndShiftError('');
@@ -53,11 +68,24 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
     }
   };
 
+  const filterItems = () => {
+    if (selectedCategory === 'all') {
+      setFilteredItems(items);
+    } else {
+      setFilteredItems(items.filter(item => item.categoryId === selectedCategory));
+    }
+  };
+
   const startNewShift = async () => {
     if (!user || activeShift) return;
 
     setIsLoading(true);
     try {
+      // Get last shift's final cash to carry over
+      const lastShifts = await db.getShiftsBySection(section);
+      const lastClosedShift = lastShifts.find(s => s.status === 'closed');
+      const startingCash = lastClosedShift?.finalCash || 0;
+
       const newShift: Shift = {
         id: `${section}-shift-${Date.now()}`,
         userId: user.id,
@@ -66,7 +94,7 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
         status: 'active',
         purchases: [],
         expenses: [],
-        totalAmount: 0,
+        totalAmount: startingCash,
         startTime: new Date(),
         validationStatus: 'balanced'
       };
@@ -81,9 +109,12 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
   };
 
   const updateCartItem = (itemId: string, change: number) => {
+    const item = items.find(i => i.id === itemId);
+    if (!item) return;
+
     setCart(prev => {
       const current = prev[itemId] || 0;
-      const newValue = Math.max(0, current + change);
+      const newValue = Math.max(0, Math.min(item.currentAmount, current + change));
       if (newValue === 0) {
         const { [itemId]: removed, ...rest } = prev;
         return rest;
@@ -99,6 +130,15 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
     }, 0);
   };
 
+  const updateItemStock = async (itemId: string, quantityToDeduct: number) => {
+    const item = items.find(i => i.id === itemId);
+    if (item) {
+      item.currentAmount -= quantityToDeduct;
+      item.updatedAt = new Date();
+      await db.saveItem(item);
+    }
+  };
+
   const confirmPurchase = async () => {
     if (!user || Object.keys(cart).length === 0) return;
 
@@ -108,6 +148,10 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
 
       // Create new shift if none exists
       if (!shift) {
+        const lastShifts = await db.getShiftsBySection(section);
+        const lastClosedShift = lastShifts.find(s => s.status === 'closed');
+        const startingCash = lastClosedShift?.finalCash || 0;
+
         shift = {
           id: `${section}-shift-${Date.now()}`,
           userId: user.id,
@@ -116,7 +160,7 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
           status: 'active',
           purchases: [],
           expenses: [],
-          totalAmount: 0,
+          totalAmount: startingCash,
           startTime: new Date(),
           validationStatus: 'balanced'
         };
@@ -134,11 +178,18 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
       });
 
       shift.purchases.push(...newPurchases);
-      shift.totalAmount = shift.purchases.reduce((total, p) => total + (p.price * p.quantity), 0);
+      shift.totalAmount += getCartTotal();
 
       await db.saveShift(shift);
+
+      // Update item stock
+      for (const [itemId, quantity] of Object.entries(cart)) {
+        await updateItemStock(itemId, quantity);
+      }
+
       setActiveShift(shift);
       setCart({});
+      await loadData();
     } catch (error) {
       console.error('Failed to confirm purchase:', error);
     } finally {
@@ -153,11 +204,11 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
   };
 
   const confirmCustomerPurchase = async () => {
-    if (!selectedCustomer && !newCustomerName) return;
+    if (!selectedCustomerForModal && !newCustomerName) return;
 
     setIsLoading(true);
     try {
-      let customer = selectedCustomer;
+      let customer = selectedCustomerForModal;
 
       // Create new customer if needed
       if (!customer && newCustomerName) {
@@ -197,20 +248,15 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
 
       await db.saveCustomerPurchase(customerPurchase);
 
-      // Update item amounts (deduct from stock)
+      // Update item stock
       for (const [itemId, quantity] of Object.entries(cart)) {
-        const item = items.find(i => i.id === itemId);
-        if (item) {
-          item.currentAmount -= quantity;
-          item.updatedAt = new Date();
-          await db.saveItem(item);
-        }
+        await updateItemStock(itemId, quantity);
       }
 
       await loadData();
       setCart({});
       setShowCustomerModal(false);
-      setSelectedCustomer(null);
+      setSelectedCustomerForModal(null);
       setNewCustomerName('');
     } catch (error) {
       console.error('Failed to add customer purchase:', error);
@@ -219,8 +265,69 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
     }
   };
 
+  const payCustomerDebt = async (customer: Customer, amount: number, isToday: boolean) => {
+    if (!user || !activeShift || amount <= 0) return;
+
+    setIsLoading(true);
+    try {
+      let unpaidPurchases = customerPurchases.filter(cp => 
+        cp.customerId === customer.id && !cp.isPaid
+      );
+
+      if (isToday && activeShift) {
+        unpaidPurchases = unpaidPurchases.filter(cp => cp.shiftId === activeShift.id);
+      }
+
+      let remainingAmount = amount;
+      const paidPurchases: CustomerPurchase[] = [];
+
+      // Pay purchases in order
+      for (const purchase of unpaidPurchases) {
+        if (remainingAmount <= 0) break;
+
+        if (purchase.totalAmount <= remainingAmount) {
+          // Pay full purchase
+          purchase.isPaid = true;
+          remainingAmount -= purchase.totalAmount;
+          paidPurchases.push(purchase);
+          await db.saveCustomerPurchase(purchase);
+        }
+      }
+
+      // Add paid items to current shift if paying today's items
+      if (isToday && paidPurchases.length > 0) {
+        const newPurchases: PurchaseItem[] = [];
+        paidPurchases.forEach(purchase => {
+          newPurchases.push(...purchase.items);
+        });
+
+        activeShift.purchases.push(...newPurchases);
+        activeShift.totalAmount += (amount - remainingAmount);
+        await db.saveShift(activeShift);
+        setActiveShift({ ...activeShift });
+      } else {
+        // For all-time payments, just add cash to shift
+        activeShift.totalAmount += (amount - remainingAmount);
+        await db.saveShift(activeShift);
+        setActiveShift({ ...activeShift });
+      }
+
+      await loadData();
+    } catch (error) {
+      console.error('Failed to pay customer debt:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const addExpense = async () => {
     if (!user || !activeShift || expenseAmount <= 0 || !expenseReason) return;
+
+    // Check if expense exceeds current cash
+    if (expenseAmount > activeShift.totalAmount) {
+      alert('Expense amount exceeds current cashier balance!');
+      return;
+    }
 
     setIsLoading(true);
     try {
@@ -238,6 +345,7 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
 
       // Update shift
       activeShift.expenses.push(expense);
+      activeShift.totalAmount -= expenseAmount; // Deduct from cash
       await db.saveShift(activeShift);
 
       setActiveShift({ ...activeShift });
@@ -272,20 +380,14 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
     setIsLoading(true);
     try {
       const discrepancies: string[] = [];
-      let totalExpectedCash = 0;
+      let totalExpectedCash = activeShift.totalAmount;
 
-      // Calculate expected inventory and cash
+      // Check inventory discrepancies
       const soldItems: Record<string, number> = {};
       activeShift.purchases.forEach(purchase => {
         soldItems[purchase.itemId] = (soldItems[purchase.itemId] || 0) + purchase.quantity;
-        totalExpectedCash += purchase.price * purchase.quantity;
       });
 
-      // Subtract expenses from expected cash
-      const totalExpenses = activeShift.expenses.reduce((sum, exp) => sum + exp.amount, 0);
-      totalExpectedCash -= totalExpenses;
-
-      // Check inventory discrepancies
       Object.entries(soldItems).forEach(([itemId, soldQuantity]) => {
         const item = items.find(i => i.id === itemId);
         if (item) {
@@ -327,44 +429,14 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
       await db.saveShift(activeShift);
 
       // Update item amounts
-      Object.entries(soldItems).forEach(async ([itemId, soldQuantity]) => {
+      Object.entries(inventoryInputs).forEach(async ([itemId, amount]) => {
         const item = items.find(i => i.id === itemId);
         if (item) {
-          item.currentAmount = inventoryInputs[itemId];
+          item.currentAmount = amount;
           item.updatedAt = new Date();
           await db.saveItem(item);
         }
       });
-
-      // Create daily summary
-      const today = new Date().toISOString().split('T')[0];
-      const dailySummary = {
-        date: `${today}-${section}`,
-        section,
-        soldItems: Object.entries(soldItems).reduce((acc, [itemId, quantity]) => {
-          const item = items.find(i => i.id === itemId);
-          if (item) {
-            acc[itemId] = {
-              quantity,
-              cost: item.costPrice * quantity,
-              profit: (item.sellPrice - item.costPrice) * quantity,
-              name: item.name
-            };
-          }
-          return acc;
-        }, {} as any),
-        totalCost: Object.entries(soldItems).reduce((total, [itemId, quantity]) => {
-          const item = items.find(i => i.id === itemId);
-          return total + (item ? item.costPrice * quantity : 0);
-        }, 0),
-        totalProfit: Object.entries(soldItems).reduce((total, [itemId, quantity]) => {
-          const item = items.find(i => i.id === itemId);
-          return total + (item ? (item.sellPrice - item.costPrice) * quantity : 0);
-        }, 0),
-        totalExpenses
-      };
-
-      await db.saveDailySummary(dailySummary);
 
       setActiveShift(null);
       setShowEndShift(false);
@@ -375,6 +447,215 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
       setIsLoading(false);
     }
   };
+
+  const renderCustomersTab = () => {
+    return (
+      <div className="space-y-6">
+        <div className="flex justify-between items-center">
+          <h2 className="text-2xl font-bold text-gray-900">Customers</h2>
+          <button
+            onClick={() => setShowCustomersTab(false)}
+            className="text-gray-500 hover:text-gray-700"
+          >
+            <X className="h-6 w-6" />
+          </button>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {customers.map(customer => {
+            const customerDebt = customerPurchases
+              .filter(cp => cp.customerId === customer.id && !cp.isPaid)
+              .reduce((total, cp) => total + cp.totalAmount, 0);
+
+            return (
+              <div 
+                key={customer.id} 
+                className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 cursor-pointer hover:shadow-md transition-shadow"
+                onClick={() => setSelectedCustomer(customer)}
+              >
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-lg font-semibold text-gray-900">{customer.name}</h3>
+                  <span className={`px-2 py-1 text-xs font-semibold rounded-full ${
+                    customerDebt > 0 ? 'bg-red-100 text-red-800' : 'bg-green-100 text-green-800'
+                  }`}>
+                    {customerDebt > 0 ? `${customerDebt} EGP debt` : 'Paid up'}
+                  </span>
+                </div>
+                
+                <div className="space-y-2 text-sm text-gray-600">
+                  <div>Created: {new Date(customer.createdAt).toLocaleDateString()}</div>
+                  <div>Total purchases: {customerPurchases.filter(cp => cp.customerId === customer.id).length}</div>
+                  <div>Outstanding debt: {customerDebt} EGP</div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  };
+
+  const renderCustomerDetails = () => {
+    if (!selectedCustomer) return null;
+
+    const todayPurchases = customerPurchases.filter(cp => 
+      cp.customerId === selectedCustomer.id && 
+      !cp.isPaid && 
+      cp.shiftId === activeShift?.id
+    );
+
+    const allTimePurchases = customerPurchases.filter(cp => 
+      cp.customerId === selectedCustomer.id && 
+      !cp.isPaid
+    );
+
+    const todayTotal = todayPurchases.reduce((sum, cp) => sum + cp.totalAmount, 0);
+    const allTimeTotal = allTimePurchases.reduce((sum, cp) => sum + cp.totalAmount, 0);
+
+    return (
+      <div className="space-y-6">
+        <div className="flex items-center justify-between">
+          <h2 className="text-2xl font-bold text-gray-900">{selectedCustomer.name}</h2>
+          <button
+            onClick={() => setSelectedCustomer(null)}
+            className="text-gray-500 hover:text-gray-700"
+          >
+            <X className="h-6 w-6" />
+          </button>
+        </div>
+
+        {/* Customer Tabs */}
+        <div className="border-b border-gray-200">
+          <nav className="-mb-px flex space-x-8">
+            <button
+              onClick={() => setCustomerTab('today')}
+              className={`py-2 px-1 border-b-2 font-medium text-sm ${
+                customerTab === 'today'
+                  ? 'border-blue-500 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              Today's Items ({todayTotal} EGP)
+            </button>
+            <button
+              onClick={() => setCustomerTab('alltime')}
+              className={`py-2 px-1 border-b-2 font-medium text-sm ${
+                customerTab === 'alltime'
+                  ? 'border-blue-500 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              All-Time Items ({allTimeTotal} EGP)
+            </button>
+          </nav>
+        </div>
+
+        {/* Today's Items */}
+        {customerTab === 'today' && (
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+            <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
+              <h3 className="text-lg font-semibold text-gray-900">Today's Items</h3>
+              {todayTotal > 0 && (
+                <button
+                  onClick={() => payCustomerDebt(selectedCustomer, todayTotal, true)}
+                  disabled={isLoading}
+                  className="bg-green-600 hover:bg-green-700 disabled:bg-green-400 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+                >
+                  Pay {todayTotal} EGP
+                </button>
+              )}
+            </div>
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Item Name</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Quantity</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total Price</th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {todayPurchases.flatMap(purchase => 
+                    purchase.items.map((item, index) => (
+                      <tr key={`${purchase.id}-${index}`}>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                          {item.name}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                          {item.quantity}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                          {item.price * item.quantity} EGP
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* All-Time Items */}
+        {customerTab === 'alltime' && (
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+            <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
+              <h3 className="text-lg font-semibold text-gray-900">All-Time Items</h3>
+              {allTimeTotal > 0 && (
+                <button
+                  onClick={() => payCustomerDebt(selectedCustomer, allTimeTotal, false)}
+                  disabled={isLoading}
+                  className="bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+                >
+                  Pay {allTimeTotal} EGP
+                </button>
+              )}
+            </div>
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Item Name</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Quantity</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total Price</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date Taken</th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {allTimePurchases.flatMap(purchase => 
+                    purchase.items.map((item, index) => (
+                      <tr key={`${purchase.id}-${index}`}>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                          {item.name}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                          {item.quantity}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                          {item.price * item.quantity} EGP
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                          {new Date(purchase.timestamp).toLocaleDateString()}
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  if (showCustomersTab && !selectedCustomer) {
+    return renderCustomersTab();
+  }
+
+  if (selectedCustomer) {
+    return renderCustomerDetails();
+  }
 
   if (showEndShift) {
     return (
@@ -466,266 +747,327 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
   }
 
   return (
-    <div className="space-y-6">
-      {/* Start New Shift Button */}
-      {!activeShift && (
-        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center">
-              <Play className="h-5 w-5 text-blue-600 mr-2" />
-              <span className="font-medium text-blue-800">No active shift</span>
-            </div>
-            <button
-              onClick={startNewShift}
-              disabled={isLoading}
-              className="bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors flex items-center"
-            >
-              <Play className="h-4 w-4 mr-2" />
-              Start New Shift
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Active Shift Status */}
-      {activeShift && (
-        <div className="bg-green-50 border border-green-200 rounded-lg p-4">
-          <div className="flex items-center justify-between mb-3">
-            <div className="flex items-center">
-              <Clock className="h-5 w-5 text-green-600 mr-2" />
-              <span className="font-medium text-green-800">
-                Active Shift - Total: {activeShift.totalAmount} EGP
-              </span>
-            </div>
-            <div className="flex space-x-2">
+    <div className="flex">
+      {/* Category Sidebar */}
+      <div className="w-64 bg-white rounded-lg shadow-sm border border-gray-200 p-4 mr-6 h-fit">
+        <h3 className="font-semibold text-gray-900 mb-4 flex items-center">
+          <Filter className="h-4 w-4 mr-2" />
+          Categories
+        </h3>
+        <div className="space-y-2">
+          <button
+            onClick={() => setSelectedCategory('all')}
+            className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors ${
+              selectedCategory === 'all'
+                ? 'bg-blue-100 text-blue-800 font-medium'
+                : 'text-gray-600 hover:bg-gray-100'
+            }`}
+          >
+            All Items ({items.length})
+          </button>
+          {categories.map(category => {
+            const itemCount = items.filter(i => i.categoryId === category.id).length;
+            return (
               <button
-                onClick={() => setShowExpenseModal(true)}
-                className="bg-orange-600 hover:bg-orange-700 text-white px-3 py-1 rounded text-sm font-medium transition-colors flex items-center"
+                key={category.id}
+                onClick={() => setSelectedCategory(category.id)}
+                className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors ${
+                  selectedCategory === category.id
+                    ? 'bg-blue-100 text-blue-800 font-medium'
+                    : 'text-gray-600 hover:bg-gray-100'
+                }`}
               >
-                <DollarSign className="h-4 w-4 mr-1" />
-                Expenses
+                {category.name} ({itemCount})
               </button>
-              <button
-                onClick={startEndShift}
-                className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
-              >
-                End Shift
-              </button>
-            </div>
-          </div>
-          {activeShift.expenses.length > 0 && (
-            <div className="text-sm text-green-700">
-              Expenses: {activeShift.expenses.reduce((sum, exp) => sum + exp.amount, 0)} EGP
-            </div>
-          )}
+            );
+          })}
         </div>
-      )}
-
-      {/* Items Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {items.map(item => (
-          <div key={item.id} className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-            <div className="flex justify-between items-start mb-4">
-              <div>
-                <h3 className="font-semibold text-gray-900">{item.name}</h3>
-                <p className="text-lg font-bold text-blue-600">{item.sellPrice} EGP</p>
-                <p className="text-sm text-gray-500">Stock: {item.currentAmount}</p>
-              </div>
-              {item.image && (
-                <img 
-                  src={item.image} 
-                  alt={item.name}
-                  className="w-16 h-16 object-cover rounded-lg"
-                />
-              )}
-            </div>
-
-            <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-3">
-                <button
-                  onClick={() => updateCartItem(item.id, -1)}
-                  disabled={!cart[item.id]}
-                  className="p-1 rounded-full bg-gray-100 hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                >
-                  <Minus className="h-4 w-4" />
-                </button>
-                <span className="font-medium w-8 text-center">{cart[item.id] || 0}</span>
-                <button
-                  onClick={() => updateCartItem(item.id, 1)}
-                  disabled={item.currentAmount <= 0}
-                  className="p-1 rounded-full bg-gray-100 hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                >
-                  <Plus className="h-4 w-4" />
-                </button>
-              </div>
-            </div>
-          </div>
-        ))}
       </div>
 
-      {/* Cart Summary */}
-      {Object.keys(cart).length > 0 && (
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-          <h3 className="font-semibold text-gray-900 mb-4">Current Selection</h3>
-          <div className="space-y-2 mb-4">
-            {Object.entries(cart).map(([itemId, quantity]) => {
-              const item = items.find(i => i.id === itemId);
-              if (!item) return null;
-              return (
-                <div key={itemId} className="flex justify-between items-center">
-                  <span>{quantity}x {item.name}</span>
-                  <span className="font-medium">{item.sellPrice * quantity} EGP</span>
-                </div>
-              );
-            })}
-          </div>
-          <div className="border-t pt-4 flex justify-between items-center">
-            <span className="text-lg font-bold">Total: {getCartTotal()} EGP</span>
-            <div className="flex space-x-3">
+      {/* Main Content */}
+      <div className="flex-1 space-y-6">
+        {/* Start New Shift Button */}
+        {!activeShift && (
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center">
+                <Play className="h-5 w-5 text-blue-600 mr-2" />
+                <span className="font-medium text-blue-800">No active shift</span>
+              </div>
               <button
-                onClick={addToCustomer}
+                onClick={startNewShift}
                 disabled={isLoading}
-                className="bg-purple-600 hover:bg-purple-700 disabled:bg-purple-400 text-white font-semibold py-2 px-4 rounded-lg transition-colors flex items-center"
+                className="bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors flex items-center"
               >
-                <Users className="h-4 w-4 mr-2" />
-                Add to Customer
+                <Play className="h-4 w-4 mr-2" />
+                Start New Shift
               </button>
-              <button
-                onClick={confirmPurchase}
-                disabled={isLoading}
-                className="bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white font-semibold py-2 px-6 rounded-lg transition-colors flex items-center"
-              >
-                {isLoading ? (
-                  'Processing...'
-                ) : (
-                  <>
-                    <ShoppingCart className="h-4 w-4 mr-2" />
-                    Confirm Purchase
-                  </>
+            </div>
+          </div>
+        )}
+
+        {/* Active Shift Status */}
+        {activeShift && (
+          <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center">
+                <Clock className="h-5 w-5 text-green-600 mr-2" />
+                <span className="font-medium text-green-800">
+                  Active Shift - Total: {activeShift.totalAmount} EGP
+                </span>
+              </div>
+              <div className="flex space-x-2">
+                <button
+                  onClick={() => setShowCustomersTab(true)}
+                  className="bg-purple-600 hover:bg-purple-700 text-white px-3 py-1 rounded text-sm font-medium transition-colors flex items-center"
+                >
+                  <Users className="h-4 w-4 mr-1" />
+                  Customers
+                </button>
+                <button
+                  onClick={() => setShowExpenseModal(true)}
+                  className="bg-orange-600 hover:bg-orange-700 text-white px-3 py-1 rounded text-sm font-medium transition-colors flex items-center"
+                >
+                  <DollarSign className="h-4 w-4 mr-1" />
+                  Expenses
+                </button>
+                <button
+                  onClick={startEndShift}
+                  className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+                >
+                  End Shift
+                </button>
+              </div>
+            </div>
+            {activeShift.expenses.length > 0 && (
+              <div className="text-sm text-green-700">
+                Expenses: {activeShift.expenses.reduce((sum, exp) => sum + exp.amount, 0)} EGP
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Items Grid */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {filteredItems.map(item => (
+            <div key={item.id} className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+              <div className="flex justify-between items-start mb-4">
+                <div>
+                  <h3 className="font-semibold text-gray-900">{item.name}</h3>
+                  <p className="text-lg font-bold text-blue-600">{item.sellPrice} EGP</p>
+                  <p className="text-sm text-gray-500">Stock: {item.currentAmount}</p>
+                </div>
+                {item.image && (
+                  <img 
+                    src={item.image} 
+                    alt={item.name}
+                    className="w-16 h-16 object-cover rounded-lg"
+                  />
                 )}
-              </button>
+              </div>
+
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-3">
+                  <button
+                    onClick={() => updateCartItem(item.id, -1)}
+                    disabled={!cart[item.id]}
+                    className="p-1 rounded-full bg-gray-100 hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  >
+                    <Minus className="h-4 w-4" />
+                  </button>
+                  <span className="font-medium w-8 text-center">{cart[item.id] || 0}</span>
+                  <button
+                    onClick={() => updateCartItem(item.id, 1)}
+                    disabled={item.currentAmount <= 0 || (cart[item.id] || 0) >= item.currentAmount}
+                    className="p-1 rounded-full bg-gray-100 hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  >
+                    <Plus className="h-4 w-4" />
+                  </button>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* Cart Summary */}
+        {Object.keys(cart).length > 0 && (
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+            <h3 className="font-semibold text-gray-900 mb-4">Current Selection</h3>
+            <div className="space-y-2 mb-4">
+              {Object.entries(cart).map(([itemId, quantity]) => {
+                const item = items.find(i => i.id === itemId);
+                if (!item) return null;
+                return (
+                  <div key={itemId} className="flex justify-between items-center">
+                    <span>{quantity}x {item.name}</span>
+                    <span className="font-medium">{item.sellPrice * quantity} EGP</span>
+                  </div>
+                );
+              })}
+            </div>
+            <div className="border-t pt-4 flex justify-between items-center">
+              <span className="text-lg font-bold">Total: {getCartTotal()} EGP</span>
+              <div className="flex space-x-3">
+                <button
+                  onClick={addToCustomer}
+                  disabled={isLoading}
+                  className="bg-purple-600 hover:bg-purple-700 disabled:bg-purple-400 text-white font-semibold py-2 px-4 rounded-lg transition-colors flex items-center"
+                >
+                  <Users className="h-4 w-4 mr-2" />
+                  Add to Customer
+                </button>
+                <button
+                  onClick={confirmPurchase}
+                  disabled={isLoading}
+                  className="bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white font-semibold py-2 px-6 rounded-lg transition-colors flex items-center"
+                >
+                  {isLoading ? (
+                    'Processing...'
+                  ) : (
+                    <>
+                      <ShoppingCart className="h-4 w-4 mr-2" />
+                      Confirm Purchase
+                    </>
+                  )}
+                </button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        )}
 
-      {/* Customer Modal */}
-      {showCustomerModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-full max-w-md">
-            <h3 className="text-lg font-semibold mb-4">Add to Customer</h3>
-            
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Select Customer
-                </label>
-                <div className="space-y-2 max-h-40 overflow-y-auto">
-                  {customers.map(customer => (
-                    <button
-                      key={customer.id}
-                      onClick={() => setSelectedCustomer(customer)}
-                      className={`w-full text-left p-3 border rounded-lg transition-colors ${
-                        selectedCustomer?.id === customer.id
-                          ? 'border-blue-500 bg-blue-50'
-                          : 'border-gray-300 hover:bg-gray-50'
-                      }`}
-                    >
-                      {customer.name}
-                    </button>
-                  ))}
+        {/* Customer Modal */}
+        {showCustomerModal && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-lg p-6 w-full max-w-md">
+              <h3 className="text-lg font-semibold mb-4">Add to Customer</h3>
+              
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Select Customer
+                  </label>
+                  <div className="space-y-2 max-h-40 overflow-y-auto">
+                    {selectedCustomerForModal && (
+                      <div className="p-3 border border-blue-500 bg-blue-50 rounded-lg flex justify-between items-center">
+                        <span className="text-blue-800 font-medium">{selectedCustomerForModal.name}</span>
+                        <button
+                          onClick={() => setSelectedCustomerForModal(null)}
+                          className="text-blue-600 hover:text-blue-800"
+                        >
+                          <X className="h-4 w-4" />
+                        </button>
+                      </div>
+                    )}
+                    {!selectedCustomerForModal && customers.map(customer => (
+                      <button
+                        key={customer.id}
+                        onClick={() => setSelectedCustomerForModal(customer)}
+                        className="w-full text-left p-3 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+                      >
+                        {customer.name}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {!selectedCustomerForModal && (
+                  <div className="border-t pt-4">
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Or Create New Customer
+                    </label>
+                    <input
+                      type="text"
+                      value={newCustomerName}
+                      onChange={(e) => setNewCustomerName(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      placeholder="Enter customer name"
+                    />
+                  </div>
+                )}
+              </div>
+
+              <div className="flex space-x-3 mt-6">
+                <button
+                  onClick={confirmCustomerPurchase}
+                  disabled={isLoading || (!selectedCustomerForModal && !newCustomerName)}
+                  className="flex-1 bg-purple-600 hover:bg-purple-700 disabled:bg-purple-400 text-white font-semibold py-2 px-4 rounded-lg transition-colors"
+                >
+                  {isLoading ? 'Adding...' : 'Add to Customer'}
+                </button>
+                <button
+                  onClick={() => {
+                    setShowCustomerModal(false);
+                    setSelectedCustomerForModal(null);
+                    setNewCustomerName('');
+                  }}
+                  className="px-6 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Expense Modal */}
+        {showExpenseModal && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-lg p-6 w-full max-w-md">
+              <h3 className="text-lg font-semibold mb-4">Add Expense</h3>
+              
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Amount (EGP)</label>
+                  <input
+                    type="number"
+                    value={expenseAmount}
+                    onChange={(e) => setExpenseAmount(parseFloat(e.target.value) || 0)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    min="0"
+                    max={activeShift?.totalAmount || 0}
+                    step="0.01"
+                  />
+                  {activeShift && (
+                    <p className="text-xs text-gray-500 mt-1">
+                      Available cash: {activeShift.totalAmount} EGP
+                    </p>
+                  )}
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Reason</label>
+                  <input
+                    type="text"
+                    value={expenseReason}
+                    onChange={(e) => setExpenseReason(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    placeholder="e.g., Cleaning supplies"
+                  />
                 </div>
               </div>
 
-              <div className="border-t pt-4">
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Or Create New Customer
-                </label>
-                <input
-                  type="text"
-                  value={newCustomerName}
-                  onChange={(e) => setNewCustomerName(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  placeholder="Enter customer name"
-                />
+              <div className="flex space-x-3 mt-6">
+                <button
+                  onClick={addExpense}
+                  disabled={isLoading || expenseAmount <= 0 || !expenseReason || (activeShift && expenseAmount > activeShift.totalAmount)}
+                  className="flex-1 bg-orange-600 hover:bg-orange-700 disabled:bg-orange-400 text-white font-semibold py-2 px-4 rounded-lg transition-colors"
+                >
+                  {isLoading ? 'Adding...' : 'Add Expense'}
+                </button>
+                <button
+                  onClick={() => {
+                    setShowExpenseModal(false);
+                    setExpenseAmount(0);
+                    setExpenseReason('');
+                  }}
+                  className="px-6 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+                >
+                  Cancel
+                </button>
               </div>
-            </div>
-
-            <div className="flex space-x-3 mt-6">
-              <button
-                onClick={confirmCustomerPurchase}
-                disabled={isLoading || (!selectedCustomer && !newCustomerName)}
-                className="flex-1 bg-purple-600 hover:bg-purple-700 disabled:bg-purple-400 text-white font-semibold py-2 px-4 rounded-lg transition-colors"
-              >
-                {isLoading ? 'Adding...' : 'Add to Customer'}
-              </button>
-              <button
-                onClick={() => {
-                  setShowCustomerModal(false);
-                  setSelectedCustomer(null);
-                  setNewCustomerName('');
-                }}
-                className="px-6 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
-              >
-                Cancel
-              </button>
             </div>
           </div>
-        </div>
-      )}
-
-      {/* Expense Modal */}
-      {showExpenseModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-full max-w-md">
-            <h3 className="text-lg font-semibold mb-4">Add Expense</h3>
-            
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Amount (EGP)</label>
-                <input
-                  type="number"
-                  value={expenseAmount}
-                  onChange={(e) => setExpenseAmount(parseFloat(e.target.value) || 0)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  min="0"
-                  step="0.01"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Reason</label>
-                <input
-                  type="text"
-                  value={expenseReason}
-                  onChange={(e) => setExpenseReason(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  placeholder="e.g., Cleaning supplies"
-                />
-              </div>
-            </div>
-
-            <div className="flex space-x-3 mt-6">
-              <button
-                onClick={addExpense}
-                disabled={isLoading || expenseAmount <= 0 || !expenseReason}
-                className="flex-1 bg-orange-600 hover:bg-orange-700 disabled:bg-orange-400 text-white font-semibold py-2 px-4 rounded-lg transition-colors"
-              >
-                {isLoading ? 'Adding...' : 'Add Expense'}
-              </button>
-              <button
-                onClick={() => {
-                  setShowExpenseModal(false);
-                  setExpenseAmount(0);
-                  setExpenseReason('');
-                }}
-                className="px-6 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 };
