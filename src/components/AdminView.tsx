@@ -1,98 +1,78 @@
 import React, { useState, useEffect } from 'react';
 import { 
-  Package, Users, FileText, Settings, Plus, Edit, Trash2, 
-  Save, X, DollarSign, TrendingUp, Calendar, Clock,
-  ShoppingCart, AlertCircle, CheckCircle, XCircle, Eye,
-  Store, Pill, CreditCard, History, BarChart3, User,
-  PlayCircle, StopCircle, Calculator, Receipt
+  Package, Users, FileText, BarChart3, Plus, Edit, Trash2, 
+  Search, Filter, Download, Eye, X, Save, AlertTriangle,
+  DollarSign, TrendingUp, ShoppingCart, Clock, User,
+  Calendar, CheckCircle, XCircle, RefreshCw, Upload, Image
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { db } from '../services/database';
 import { 
-  Item, User as UserType, Category, Customer, CustomerPurchase, 
-  Shift, Supply, Expense, AdminLog, SupplementDebt, PurchaseItem 
+  Item, User as UserType, AdminLog, Shift, Customer, 
+  CustomerPurchase, Supply, SupplementDebt, PurchaseItem, Expense 
 } from '../types';
 import { generateShiftsPDF, generateMonthlySummaryPDF } from '../utils/pdfGenerator';
 
-interface AdminViewProps {
-  section: 'store' | 'supplement';
-}
-
-const AdminView: React.FC<AdminViewProps> = ({ section }) => {
+const AdminView: React.FC<{ section: 'store' | 'supplement' }> = ({ section }) => {
   const { user } = useAuth();
-  const [activeTab, setActiveTab] = useState<string>('current-shift');
+  const [activeTab, setActiveTab] = useState('dashboard');
   const [items, setItems] = useState<Item[]>([]);
   const [users, setUsers] = useState<UserType[]>([]);
-  const [categories, setCategories] = useState<Category[]>([]);
+  const [adminLogs, setAdminLogs] = useState<AdminLog[]>([]);
+  const [shifts, setShifts] = useState<Shift[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [customerPurchases, setCustomerPurchases] = useState<CustomerPurchase[]>([]);
-  const [shifts, setShifts] = useState<Shift[]>([]);
   const [currentShift, setCurrentShift] = useState<Shift | null>(null);
-  const [adminLogs, setAdminLogs] = useState<AdminLog[]>([]);
   const [supplementDebt, setSupplementDebt] = useState<SupplementDebt | null>(null);
   const [loading, setLoading] = useState(true);
-
-  // Form states
+  const [searchTerm, setSearchTerm] = useState('');
+  const [selectedShift, setSelectedShift] = useState<Shift | null>(null);
+  const [showAddItem, setShowAddItem] = useState(false);
+  const [showAddUser, setShowAddUser] = useState(false);
+  const [showAddSupply, setShowAddSupply] = useState(false);
+  const [showAddCustomer, setShowAddCustomer] = useState(false);
+  const [showShiftDetails, setShowShiftDetails] = useState(false);
   const [editingItem, setEditingItem] = useState<Item | null>(null);
   const [editingUser, setEditingUser] = useState<UserType | null>(null);
-  const [editingCategory, setEditingCategory] = useState<Category | null>(null);
-  const [showAddItemForm, setShowAddItemForm] = useState(false);
-  const [showAddUserForm, setShowAddUserForm] = useState(false);
-  const [showAddCategoryForm, setShowAddCategoryForm] = useState(false);
-  const [showAddSupplyForm, setShowAddSupplyForm] = useState(false);
-  const [showAddPaymentForm, setShowAddPaymentForm] = useState(false);
-  const [showAddExpenseForm, setShowAddExpenseForm] = useState(false);
-  const [showShiftDetails, setShowShiftDetails] = useState<string | null>(null);
 
-  // New item form
+  // Form states
   const [newItem, setNewItem] = useState({
     name: '',
     sellPrice: 0,
     costPrice: 0,
     currentAmount: 0,
-    categoryId: ''
+    image: ''
   });
-
-  // New user form
   const [newUser, setNewUser] = useState({
     username: '',
     password: '',
     role: 'normal' as 'normal' | 'admin'
   });
-
-  // New category form
-  const [newCategory, setNewCategory] = useState({
-    name: ''
-  });
-
-  // Supply form
+  const [newCustomer, setNewCustomer] = useState({ name: '' });
   const [supplyItems, setSupplyItems] = useState<Record<string, number>>({});
-  const [supplyTotalCost, setSupplyTotalCost] = useState(0);
-
-  // Payment form
-  const [paymentForm, setPaymentForm] = useState({
-    amount: 0,
-    paidBy: ''
+  const [newPurchase, setNewPurchase] = useState({
+    itemId: '',
+    quantity: 1,
+    price: 0
   });
-
-  // Expense form
-  const [expenseForm, setExpenseForm] = useState({
+  const [newExpense, setNewExpense] = useState({
     amount: 0,
     reason: ''
   });
+  const [manualCash, setManualCash] = useState(0);
+  const [debtPayment, setDebtPayment] = useState(0);
 
-  // Purchase form for current shift
-  const [purchaseForm, setPurchaseForm] = useState({
-    itemId: '',
-    quantity: 1,
-    customPrice: 0
-  });
+  // Auto-refresh data every 2 seconds
+  useEffect(() => {
+    const interval = setInterval(() => {
+      loadData();
+    }, 2000);
 
-  // Load data
+    return () => clearInterval(interval);
+  }, [section]);
+
   useEffect(() => {
     loadData();
-    const interval = setInterval(loadData, 2000); // Real-time updates every 2 seconds
-    return () => clearInterval(interval);
   }, [section]);
 
   const loadData = async () => {
@@ -100,34 +80,31 @@ const AdminView: React.FC<AdminViewProps> = ({ section }) => {
       const [
         itemsData,
         usersData,
-        categoriesData,
-        customersData,
-        customerPurchasesData,
+        logsData,
         shiftsData,
-        currentShiftData,
-        adminLogsData,
-        supplementDebtData
+        customersData,
+        purchasesData,
+        activeShift,
+        debtData
       ] = await Promise.all([
         db.getItemsBySection(section),
         db.getAllUsers(),
-        db.getCategoriesBySection(section),
+        db.getAllAdminLogs(),
+        db.getShiftsBySection(section),
         db.getCustomersBySection(section),
         db.getUnpaidCustomerPurchases(section),
-        db.getShiftsBySection(section),
         db.getActiveShift(section),
-        db.getAllAdminLogs(),
         section === 'supplement' ? db.getSupplementDebt() : Promise.resolve(null)
       ]);
 
       setItems(itemsData);
       setUsers(usersData);
-      setCategories(categoriesData);
-      setCustomers(customersData);
-      setCustomerPurchases(customerPurchasesData);
+      setAdminLogs(logsData.filter(log => !log.section || log.section === section));
       setShifts(shiftsData);
-      setCurrentShift(currentShiftData);
-      setAdminLogs(adminLogsData.filter(log => !log.section || log.section === section));
-      setSupplementDebt(supplementDebtData);
+      setCustomers(customersData);
+      setCustomerPurchases(purchasesData);
+      setCurrentShift(activeShift);
+      setSupplementDebt(debtData);
       setLoading(false);
     } catch (error) {
       console.error('Error loading data:', error);
@@ -137,147 +114,118 @@ const AdminView: React.FC<AdminViewProps> = ({ section }) => {
 
   const logAdminAction = async (actionType: string, itemOrShiftAffected: string, changeDetails: string) => {
     const log: AdminLog = {
-      id: `log-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      id: `log-${Date.now()}`,
       actionType,
       itemOrShiftAffected,
       changeDetails,
       timestamp: new Date(),
-      adminName: user?.username || 'Unknown',
+      adminName: user?.username || 'مجهول',
       section
     };
-    
     await db.saveAdminLog(log);
-    loadData();
   };
 
-  // Item operations
-  const handleSaveItem = async (item: Item) => {
-    try {
-      const oldItem = items.find(i => i.id === item.id);
-      await db.saveItem({ ...item, updatedAt: new Date() });
-      
-      if (oldItem) {
-        const changes = [];
-        if (oldItem.name !== item.name) changes.push(`الاسم: ${oldItem.name} → ${item.name}`);
-        if (oldItem.sellPrice !== item.sellPrice) changes.push(`سعر البيع: ${oldItem.sellPrice} → ${item.sellPrice}`);
-        if (oldItem.costPrice !== item.costPrice) changes.push(`سعر التكلفة: ${oldItem.costPrice} → ${item.costPrice}`);
-        if (oldItem.currentAmount !== item.currentAmount) changes.push(`الكمية: ${oldItem.currentAmount} → ${item.currentAmount}`);
-        
-        await logAdminAction('تعديل صنف', item.name, changes.join(', '));
-      }
-      
-      setEditingItem(null);
-      loadData();
-    } catch (error) {
-      console.error('Error saving item:', error);
+  // Image handling functions
+  const handleImageUpload = (event: React.ChangeEvent<HTMLInputElement>, isEditing: boolean = false) => {
+    const file = event.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const imageData = e.target?.result as string;
+        if (isEditing && editingItem) {
+          setEditingItem({ ...editingItem, image: imageData });
+        } else {
+          setNewItem({ ...newItem, image: imageData });
+        }
+      };
+      reader.readAsDataURL(file);
     }
   };
 
-  const handleDeleteItem = async (item: Item) => {
-    if (confirm(`هل أنت متأكد من حذف "${item.name}"؟`)) {
-      try {
-        await db.deleteItem(item.id);
-        await logAdminAction('حذف صنف', item.name, `تم حذف الصنف نهائياً`);
-        loadData();
-      } catch (error) {
-        console.error('Error deleting item:', error);
-      }
+  const removeImage = (isEditing: boolean = false) => {
+    if (isEditing && editingItem) {
+      setEditingItem({ ...editingItem, image: '' });
+    } else {
+      setNewItem({ ...newItem, image: '' });
     }
   };
 
   const handleAddItem = async () => {
     if (!newItem.name.trim()) return;
+
+    const item: Item = {
+      id: `${section}-${Date.now()}`,
+      name: newItem.name,
+      sellPrice: Math.round(newItem.sellPrice),
+      costPrice: Math.round(newItem.costPrice),
+      currentAmount: Math.round(newItem.currentAmount),
+      image: newItem.image,
+      section,
+      createdAt: new Date(),
+      updatedAt: new Date()
+    };
+
+    await db.saveItem(item);
+    await logAdminAction('إضافة صنف', newItem.name, `تم إضافة صنف جديد: ${newItem.name}`);
     
-    try {
-      const item: Item = {
-        id: `${section}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-        name: newItem.name.trim(),
-        sellPrice: Math.floor(newItem.sellPrice),
-        costPrice: Math.floor(newItem.costPrice),
-        currentAmount: Math.floor(newItem.currentAmount),
-        categoryId: newItem.categoryId || undefined,
-        section,
-        createdAt: new Date(),
-        updatedAt: new Date()
-      };
-      
-      await db.saveItem(item);
-      await logAdminAction('إضافة صنف', item.name, `سعر البيع: ${item.sellPrice}, سعر التكلفة: ${item.costPrice}, الكمية: ${item.currentAmount}`);
-      
-      setNewItem({ name: '', sellPrice: 0, costPrice: 0, currentAmount: 0, categoryId: '' });
-      setShowAddItemForm(false);
+    setNewItem({ name: '', sellPrice: 0, costPrice: 0, currentAmount: 0, image: '' });
+    setShowAddItem(false);
+    loadData();
+  };
+
+  const handleEditItem = async () => {
+    if (!editingItem) return;
+
+    const updatedItem = {
+      ...editingItem,
+      sellPrice: Math.round(editingItem.sellPrice),
+      costPrice: Math.round(editingItem.costPrice),
+      currentAmount: Math.round(editingItem.currentAmount),
+      updatedAt: new Date()
+    };
+
+    await db.saveItem(updatedItem);
+    await logAdminAction('تعديل صنف', editingItem.name, `تم تعديل الصنف: ${editingItem.name}`);
+    
+    setEditingItem(null);
+    loadData();
+  };
+
+  const handleDeleteItem = async (item: Item) => {
+    if (window.confirm(`هل أنت متأكد من حذف "${item.name}"؟`)) {
+      await db.deleteItem(item.id);
+      await logAdminAction('حذف صنف', item.name, `تم حذف الصنف: ${item.name}`);
       loadData();
-    } catch (error) {
-      console.error('Error adding item:', error);
     }
   };
 
-  // Supply operations
-  const handleAddSupply = async () => {
-    try {
-      const supply: Supply = {
-        id: `supply-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-        section,
-        items: supplyItems,
-        totalCost: Math.floor(supplyTotalCost),
-        timestamp: new Date(),
-        createdBy: user?.username || 'Unknown'
-      };
+  const handleAddUser = async () => {
+    if (!newUser.username.trim() || !newUser.password.trim()) return;
 
-      await db.saveSupply(supply);
+    const userObj: UserType = {
+      id: `user-${Date.now()}`,
+      username: newUser.username,
+      password: newUser.password,
+      role: newUser.role,
+      createdAt: new Date()
+    };
 
-      // Update item quantities
-      for (const [itemId, quantity] of Object.entries(supplyItems)) {
-        const item = items.find(i => i.id === itemId);
-        if (item) {
-          const updatedItem = {
-            ...item,
-            currentAmount: item.currentAmount + Math.floor(quantity),
-            updatedAt: new Date()
-          };
-          await db.saveItem(updatedItem);
-        }
-      }
-
-      // Update supplement debt if applicable
-      if (section === 'supplement') {
-        const currentDebt = supplementDebt?.amount || 0;
-        const newDebt: SupplementDebt = {
-          amount: currentDebt + Math.floor(supplyTotalCost),
-          lastUpdated: new Date(),
-          updatedBy: user?.username || 'Unknown'
-        };
-        await db.saveSupplementDebt(newDebt);
-      }
-
-      const itemNames = Object.entries(supplyItems)
-        .map(([itemId, qty]) => {
-          const item = items.find(i => i.id === itemId);
-          return `${item?.name}: ${qty}`;
-        })
-        .join(', ');
-
-      await logAdminAction('إضافة توريد', 'متعدد', `الأصناف: ${itemNames}, التكلفة الإجمالية: ${supplyTotalCost}`);
-
-      setSupplyItems({});
-      setSupplyTotalCost(0);
-      setShowAddSupplyForm(false);
-      loadData();
-    } catch (error) {
-      console.error('Error adding supply:', error);
-    }
+    await db.createUser(userObj);
+    await logAdminAction('إضافة مستخدم', newUser.username, `تم إضافة مستخدم جديد: ${newUser.username}`);
+    
+    setNewUser({ username: '', password: '', role: 'normal' });
+    setShowAddUser(false);
+    loadData();
   };
 
-  // User operations
-  const handleSaveUser = async (userToSave: UserType) => {
-    try {
-      await db.updateUser(userToSave);
-      await logAdminAction('تعديل مستخدم', userToSave.username, 'تم تعديل بيانات المستخدم');
-      setEditingUser(null);
-      loadData();
-    } catch (error) {
-      console.error('Error saving user:', error);
-    }
+  const handleEditUser = async () => {
+    if (!editingUser) return;
+
+    await db.updateUser(editingUser);
+    await logAdminAction('تعديل مستخدم', editingUser.username, `تم تعديل المستخدم: ${editingUser.username}`);
+    
+    setEditingUser(null);
+    loadData();
   };
 
   const handleDeleteUser = async (userToDelete: UserType) => {
@@ -286,1459 +234,1698 @@ const AdminView: React.FC<AdminViewProps> = ({ section }) => {
       return;
     }
     
-    if (confirm(`هل أنت متأكد من حذف المستخدم "${userToDelete.username}"؟`)) {
-      try {
-        await db.deleteUser(userToDelete.id);
-        await logAdminAction('حذف مستخدم', userToDelete.username, 'تم حذف المستخدم نهائياً');
-        loadData();
-      } catch (error) {
-        console.error('Error deleting user:', error);
+    if (window.confirm(`هل أنت متأكد من حذف المستخدم "${userToDelete.username}"؟`)) {
+      await db.deleteUser(userToDelete.id);
+      await logAdminAction('حذف مستخدم', userToDelete.username, `تم حذف المستخدم: ${userToDelete.username}`);
+      loadData();
+    }
+  };
+
+  const handleAddSupply = async () => {
+    const totalCost = Object.entries(supplyItems).reduce((total, [itemId, quantity]) => {
+      const item = items.find(i => i.id === itemId);
+      return total + (item ? item.costPrice * quantity : 0);
+    }, 0);
+
+    const supply: Supply = {
+      id: `supply-${Date.now()}`,
+      section,
+      items: supplyItems,
+      totalCost: Math.round(totalCost),
+      timestamp: new Date(),
+      createdBy: user?.username || 'مجهول'
+    };
+
+    await db.saveSupply(supply);
+
+    // Update item quantities
+    for (const [itemId, quantity] of Object.entries(supplyItems)) {
+      const item = items.find(i => i.id === itemId);
+      if (item) {
+        const updatedItem = {
+          ...item,
+          currentAmount: item.currentAmount + quantity,
+          updatedAt: new Date()
+        };
+        await db.saveItem(updatedItem);
       }
     }
-  };
 
-  const handleAddUser = async () => {
-    if (!newUser.username.trim() || !newUser.password.trim()) return;
+    await logAdminAction('إضافة مخزون', 'متعدد', `تم إضافة مخزون بقيمة ${totalCost} جنيه`);
     
-    try {
-      const userExists = users.some(u => u.username === newUser.username.trim());
-      if (userExists) {
-        alert('اسم المستخدم موجود بالفعل');
-        return;
-      }
-
-      const userToAdd: UserType = {
-        id: `user-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-        username: newUser.username.trim(),
-        password: newUser.password.trim(),
-        role: newUser.role,
-        createdAt: new Date()
-      };
-      
-      await db.createUser(userToAdd);
-      await logAdminAction('إضافة مستخدم', userToAdd.username, `الدور: ${userToAdd.role}`);
-      
-      setNewUser({ username: '', password: '', role: 'normal' });
-      setShowAddUserForm(false);
-      loadData();
-    } catch (error) {
-      console.error('Error adding user:', error);
-    }
+    setSupplyItems({});
+    setShowAddSupply(false);
+    loadData();
   };
 
-  // Supplement debt operations
-  const handleAddPayment = async () => {
-    if (!paymentForm.paidBy.trim() || paymentForm.amount <= 0) return;
-    
-    try {
-      const currentDebt = supplementDebt?.amount || 0;
-      const newDebt: SupplementDebt = {
-        amount: Math.max(0, currentDebt - Math.floor(paymentForm.amount)),
-        lastUpdated: new Date(),
-        updatedBy: user?.username || 'Unknown'
-      };
-      
-      await db.saveSupplementDebt(newDebt);
-      await logAdminAction('دفع دين المكملات', paymentForm.paidBy, `المبلغ: ${paymentForm.amount}`);
-      
-      setPaymentForm({ amount: 0, paidBy: '' });
-      setShowAddPaymentForm(false);
-      loadData();
-    } catch (error) {
-      console.error('Error adding payment:', error);
-    }
-  };
-
-  // Current shift operations
   const handleStartShift = async () => {
     if (currentShift) {
       alert('يوجد وردية نشطة بالفعل');
       return;
     }
 
-    try {
-      const newShift: Shift = {
-        id: `shift-${section}-${Date.now()}`,
-        userId: user?.id || '',
-        username: user?.username || '',
-        section,
-        status: 'active',
-        purchases: [],
-        expenses: [],
-        totalAmount: 0,
-        startTime: new Date(),
-        validationStatus: 'balanced'
-      };
+    const shift: Shift = {
+      id: `shift-${Date.now()}`,
+      userId: user?.id || '',
+      username: user?.username || '',
+      section,
+      status: 'active',
+      purchases: [],
+      expenses: [],
+      totalAmount: 0,
+      startTime: new Date(),
+      validationStatus: 'balanced'
+    };
 
-      await db.saveShift(newShift);
-      await logAdminAction('بدء وردية', newShift.id, 'تم بدء وردية جديدة');
-      loadData();
-    } catch (error) {
-      console.error('Error starting shift:', error);
-    }
+    await db.saveShift(shift);
+    await logAdminAction('بدء وردية', shift.id, `تم بدء وردية جديدة`);
+    loadData();
   };
 
   const handleAddPurchase = async () => {
-    if (!currentShift || !purchaseForm.itemId || purchaseForm.quantity <= 0) return;
+    if (!currentShift || !newPurchase.itemId) return;
 
-    try {
-      const item = items.find(i => i.id === purchaseForm.itemId);
-      if (!item) return;
-
-      if (item.currentAmount < purchaseForm.quantity) {
-        alert('الكمية المطلوبة غير متوفرة في المخزون');
-        return;
-      }
-
-      const price = purchaseForm.customPrice > 0 ? Math.floor(purchaseForm.customPrice) : item.sellPrice;
-      const purchase: PurchaseItem = {
-        itemId: item.id,
-        quantity: Math.floor(purchaseForm.quantity),
-        price,
-        name: item.name
-      };
-
-      const updatedShift = {
-        ...currentShift,
-        purchases: [...currentShift.purchases, purchase],
-        totalAmount: currentShift.totalAmount + (price * purchase.quantity)
-      };
-
-      const updatedItem = {
-        ...item,
-        currentAmount: item.currentAmount - purchase.quantity,
-        updatedAt: new Date()
-      };
-
-      await db.saveShift(updatedShift);
-      await db.saveItem(updatedItem);
-
-      setPurchaseForm({ itemId: '', quantity: 1, customPrice: 0 });
-      loadData();
-    } catch (error) {
-      console.error('Error adding purchase:', error);
+    const item = items.find(i => i.id === newPurchase.itemId);
+    if (!item || item.currentAmount < newPurchase.quantity) {
+      alert('الكمية المطلوبة غير متوفرة');
+      return;
     }
+
+    const purchase: PurchaseItem = {
+      itemId: newPurchase.itemId,
+      quantity: newPurchase.quantity,
+      price: Math.round(newPurchase.price),
+      name: item.name
+    };
+
+    const updatedShift = {
+      ...currentShift,
+      purchases: [...currentShift.purchases, purchase],
+      totalAmount: currentShift.totalAmount + (purchase.price * purchase.quantity)
+    };
+
+    const updatedItem = {
+      ...item,
+      currentAmount: item.currentAmount - newPurchase.quantity,
+      updatedAt: new Date()
+    };
+
+    await db.saveShift(updatedShift);
+    await db.saveItem(updatedItem);
+    
+    setNewPurchase({ itemId: '', quantity: 1, price: 0 });
+    loadData();
   };
 
   const handleAddExpense = async () => {
-    if (!currentShift || !expenseForm.reason.trim() || expenseForm.amount <= 0) return;
+    if (!currentShift || newExpense.amount <= 0) return;
 
-    try {
-      const expense: Expense = {
-        id: `expense-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-        amount: Math.floor(expenseForm.amount),
-        reason: expenseForm.reason.trim(),
-        shiftId: currentShift.id,
-        section,
-        timestamp: new Date(),
-        createdBy: user?.username || ''
-      };
+    const expense: Expense = {
+      id: `expense-${Date.now()}`,
+      amount: Math.round(newExpense.amount),
+      reason: newExpense.reason,
+      shiftId: currentShift.id,
+      section,
+      timestamp: new Date(),
+      createdBy: user?.username || 'مجهول'
+    };
 
-      const updatedShift = {
-        ...currentShift,
-        expenses: [...currentShift.expenses, expense],
-        totalAmount: currentShift.totalAmount - expense.amount
-      };
+    const updatedShift = {
+      ...currentShift,
+      expenses: [...currentShift.expenses, expense],
+      totalAmount: currentShift.totalAmount - expense.amount
+    };
 
-      await db.saveExpense(expense);
-      await db.saveShift(updatedShift);
-
-      setExpenseForm({ amount: 0, reason: '' });
-      setShowAddExpenseForm(false);
-      loadData();
-    } catch (error) {
-      console.error('Error adding expense:', error);
-    }
+    await db.saveShift(updatedShift);
+    await db.saveExpense(expense);
+    
+    setNewExpense({ amount: 0, reason: '' });
+    loadData();
   };
 
-  const handleRemoveExpense = async (expense: Expense) => {
+  const handleRemoveExpense = async (expenseId: string) => {
     if (!currentShift) return;
 
-    if (confirm(`هل أنت متأكد من حذف المصروف: ${expense.reason}؟`)) {
-      try {
-        const updatedExpenses = currentShift.expenses.filter(e => e.id !== expense.id);
-        const updatedShift = {
-          ...currentShift,
-          expenses: updatedExpenses,
-          totalAmount: currentShift.totalAmount + expense.amount
-        };
+    const expense = currentShift.expenses.find(e => e.id === expenseId);
+    if (!expense) return;
 
-        await db.saveShift(updatedShift);
-        loadData();
-      } catch (error) {
-        console.error('Error removing expense:', error);
-      }
-    }
+    const updatedShift = {
+      ...currentShift,
+      expenses: currentShift.expenses.filter(e => e.id !== expenseId),
+      totalAmount: currentShift.totalAmount + expense.amount
+    };
+
+    await db.saveShift(updatedShift);
+    loadData();
   };
 
   const handleCloseShift = async () => {
     if (!currentShift) return;
 
-    const finalCash = prompt('أدخل المبلغ النهائي في الصندوق:');
-    if (finalCash === null) return;
-
-    const finalCashAmount = Math.floor(Number(finalCash) || 0);
     const expectedCash = currentShift.totalAmount;
-    const discrepancy = finalCashAmount - expectedCash;
+    const actualCash = Math.round(manualCash);
+    const difference = actualCash - expectedCash;
 
-    let closeReason = '';
-    if (discrepancy !== 0) {
-      closeReason = prompt(`يوجد فرق ${Math.abs(discrepancy)} جنيه. أدخل سبب الفرق:`) || '';
-    }
+    const updatedShift = {
+      ...currentShift,
+      status: 'closed' as const,
+      endTime: new Date(),
+      finalCash: actualCash,
+      validationStatus: difference === 0 ? 'balanced' as const : 'discrepancy' as const,
+      discrepancies: difference !== 0 ? [`فرق في النقدية: ${difference} جنيه`] : []
+    };
 
-    try {
-      const closedShift = {
-        ...currentShift,
-        status: 'closed' as const,
-        endTime: new Date(),
-        finalCash: finalCashAmount,
-        closeReason,
-        validationStatus: discrepancy === 0 ? 'balanced' as const : 'discrepancy' as const,
-        discrepancies: discrepancy !== 0 ? [`فرق في الصندوق: ${discrepancy} جنيه`] : []
-      };
-
-      await db.saveShift(closedShift);
-      await logAdminAction('إغلاق وردية', closedShift.id, `المبلغ النهائي: ${finalCashAmount}, الفرق: ${discrepancy}`);
-      loadData();
-    } catch (error) {
-      console.error('Error closing shift:', error);
-    }
+    await db.saveShift(updatedShift);
+    await logAdminAction('إغلاق وردية', currentShift.id, `تم إغلاق الوردية - النقدية المتوقعة: ${expectedCash}، الفعلية: ${actualCash}`);
+    
+    setManualCash(0);
+    loadData();
   };
 
-  // Calculate statistics
-  const calculateStats = () => {
-    const todayShifts = shifts.filter(s => {
+  const handleAddDebtPayment = async () => {
+    if (debtPayment <= 0) return;
+
+    const currentDebt = supplementDebt?.amount || 0;
+    const newDebt = Math.max(0, currentDebt - Math.round(debtPayment));
+
+    const updatedDebt: SupplementDebt = {
+      amount: newDebt,
+      lastUpdated: new Date(),
+      updatedBy: user?.username || 'مجهول'
+    };
+
+    await db.saveSupplementDebt(updatedDebt);
+    await logAdminAction('دفع دين المكملات', 'دين المكملات', `تم دفع ${debtPayment} جنيه - الدين المتبقي: ${newDebt} جنيه`);
+    
+    setDebtPayment(0);
+    loadData();
+  };
+
+  const handleAddCustomer = async () => {
+    if (!newCustomer.name.trim()) return;
+
+    const customer: Customer = {
+      id: `customer-${Date.now()}`,
+      name: newCustomer.name,
+      section,
+      createdAt: new Date()
+    };
+
+    await db.saveCustomer(customer);
+    await logAdminAction('إضافة عميل', newCustomer.name, `تم إضافة عميل جديد: ${newCustomer.name}`);
+    
+    setNewCustomer({ name: '' });
+    setShowAddCustomer(false);
+    loadData();
+  };
+
+  // Statistics calculations
+  const todayProfit = shifts
+    .filter(s => {
       const today = new Date().toDateString();
       return new Date(s.startTime).toDateString() === today;
-    });
-
-    const todayProfit = todayShifts.reduce((total, shift) => {
+    })
+    .reduce((total, shift) => {
       return total + shift.purchases.reduce((shiftTotal, purchase) => {
         const item = items.find(i => i.id === purchase.itemId);
-        const profit = item ? (purchase.price - item.costPrice) * purchase.quantity : 0;
-        return shiftTotal + profit;
+        const cost = item ? item.costPrice * purchase.quantity : 0;
+        const revenue = purchase.price * purchase.quantity;
+        return shiftTotal + (revenue - cost);
       }, 0);
     }, 0);
 
-    const monthlyRevenue = shifts
-      .filter(s => {
-        const thisMonth = new Date().getMonth();
-        const thisYear = new Date().getFullYear();
-        const shiftDate = new Date(s.startTime);
-        return shiftDate.getMonth() === thisMonth && shiftDate.getFullYear() === thisYear;
-      })
-      .reduce((total, shift) => total + shift.totalAmount, 0);
+  const monthlyRevenue = shifts
+    .filter(s => {
+      const thisMonth = new Date().getMonth();
+      const thisYear = new Date().getFullYear();
+      const shiftDate = new Date(s.startTime);
+      return shiftDate.getMonth() === thisMonth && shiftDate.getFullYear() === thisYear;
+    })
+    .reduce((total, shift) => total + shift.totalAmount, 0);
 
-    const totalCustomers = customers.length;
-    const pendingDebt = customerPurchases.reduce((total, purchase) => total + purchase.totalAmount, 0);
+  const lowStockItems = items.filter(item => item.currentAmount < 10);
+  const totalCustomerDebt = customerPurchases.reduce((total, purchase) => total + purchase.totalAmount, 0);
 
-    return {
-      todayProfit: Math.floor(todayProfit),
-      monthlyRevenue: Math.floor(monthlyRevenue),
-      totalCustomers,
-      pendingDebt: Math.floor(pendingDebt),
-      currentShiftCash: currentShift ? Math.floor(currentShift.totalAmount) : 0
-    };
-  };
+  const filteredItems = items.filter(item =>
+    item.name.toLowerCase().includes(searchTerm.toLowerCase())
+  );
 
-  const stats = calculateStats();
+  const filteredUsers = users.filter(user =>
+    user.username.toLowerCase().includes(searchTerm.toLowerCase())
+  );
+
+  const filteredShifts = shifts.filter(shift =>
+    shift.username.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    shift.id.toLowerCase().includes(searchTerm.toLowerCase())
+  );
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-64">
+      <div className="flex items-center justify-center h-64" dir="rtl">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
       </div>
     );
   }
 
-  const tabs = [
-    { id: 'current-shift', label: 'الوردية الحالية', icon: PlayCircle },
-    { id: 'inventory', label: 'المخزون', icon: Package },
-    { id: 'customers', label: 'العملاء', icon: Users },
-    { id: 'shifts', label: 'تاريخ الورديات', icon: History },
-    { id: 'profits', label: 'الأرباح', icon: TrendingUp },
-    { id: 'users', label: 'المستخدمين', icon: User },
-    { id: 'admin-log', label: 'سجل الإدارة', icon: FileText },
-    ...(section === 'supplement' ? [{ id: 'debts', label: 'الديون', icon: CreditCard }] : [])
-  ];
-
   return (
     <div className="space-y-6" dir="rtl">
-      {/* Header with Stats */}
-      <div className="bg-white rounded-lg shadow-sm p-6">
-        <div className="flex items-center justify-between mb-6">
-          <h1 className="text-2xl font-bold text-gray-900 flex items-center">
-            {section === 'store' ? <Store className="h-6 w-6 ml-2" /> : <Pill className="h-6 w-6 ml-2" />}
-            لوحة تحكم {section === 'store' ? 'البار' : 'المكملات'}
-          </h1>
-          <div className="flex items-center space-x-4 space-x-reverse">
-            <span className="text-sm text-gray-500">آخر تحديث: {new Date().toLocaleTimeString('ar-EG')}</span>
-          </div>
-        </div>
-
-        {/* Stats Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          <div className="bg-blue-50 p-4 rounded-lg">
-            <div className="flex items-center">
-              <TrendingUp className="h-8 w-8 text-blue-600" />
-              <div className="mr-3">
-                <p className="text-sm font-medium text-blue-600">ربح اليوم</p>
-                <p className="text-2xl font-bold text-blue-900">{stats.todayProfit} ج.م</p>
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-green-50 p-4 rounded-lg">
-            <div className="flex items-center">
-              <DollarSign className="h-8 w-8 text-green-600" />
-              <div className="mr-3">
-                <p className="text-sm font-medium text-green-600">إيرادات الشهر</p>
-                <p className="text-2xl font-bold text-green-900">{stats.monthlyRevenue} ج.م</p>
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-purple-50 p-4 rounded-lg">
-            <div className="flex items-center">
-              <Users className="h-8 w-8 text-purple-600" />
-              <div className="mr-3">
-                <p className="text-sm font-medium text-purple-600">إجمالي العملاء</p>
-                <p className="text-2xl font-bold text-purple-900">{stats.totalCustomers}</p>
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-orange-50 p-4 rounded-lg">
-            <div className="flex items-center">
-              <Calculator className="h-8 w-8 text-orange-600" />
-              <div className="mr-3">
-                <p className="text-sm font-medium text-orange-600">
-                  {currentShift ? 'صندوق الوردية' : 'ديون العملاء'}
-                </p>
-                <p className="text-2xl font-bold text-orange-900">
-                  {currentShift ? stats.currentShiftCash : stats.pendingDebt} ج.م
-                </p>
-              </div>
-            </div>
-          </div>
+      {/* Navigation Tabs */}
+      <div className="bg-white rounded-lg shadow-sm border">
+        <div className="flex flex-wrap gap-1 p-1">
+          {[
+            { id: 'dashboard', label: 'لوحة التحكم', icon: BarChart3 },
+            { id: 'inventory', label: 'المخزون', icon: Package },
+            { id: 'current-shift', label: 'الوردية الحالية', icon: Clock },
+            { id: 'shifts', label: 'الورديات', icon: Calendar },
+            { id: 'customers', label: 'العملاء', icon: Users },
+            { id: 'users', label: 'المستخدمين', icon: User },
+            { id: 'admin-logs', label: 'سجل الإدارة', icon: FileText },
+            ...(section === 'supplement' ? [{ id: 'debts', label: 'الديون', icon: DollarSign }] : [])
+          ].map(tab => {
+            const Icon = tab.icon;
+            return (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className={`flex items-center space-x-2 space-x-reverse px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+                  activeTab === tab.id
+                    ? 'bg-blue-100 text-blue-700'
+                    : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
+                }`}
+              >
+                <Icon className="h-4 w-4" />
+                <span>{tab.label}</span>
+              </button>
+            );
+          })}
         </div>
       </div>
 
-      {/* Navigation Tabs */}
-      <div className="bg-white rounded-lg shadow-sm">
-        <div className="border-b border-gray-200">
-          <nav className="flex space-x-8 space-x-reverse px-6" aria-label="Tabs">
-            {tabs.map((tab) => {
-              const Icon = tab.icon;
-              return (
-                <button
-                  key={tab.id}
-                  onClick={() => setActiveTab(tab.id)}
-                  className={`${
-                    activeTab === tab.id
-                      ? 'border-blue-500 text-blue-600'
-                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                  } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm flex items-center`}
-                >
-                  <Icon className="h-4 w-4 ml-2" />
-                  {tab.label}
-                </button>
-              );
-            })}
-          </nav>
-        </div>
+      {/* Dashboard Tab */}
+      {activeTab === 'dashboard' && (
+        <div className="space-y-6">
+          {/* Statistics Cards */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+            <div className="bg-white p-6 rounded-lg shadow-sm border">
+              <div className="flex items-center">
+                <div className="p-2 bg-green-100 rounded-lg">
+                  <TrendingUp className="h-6 w-6 text-green-600" />
+                </div>
+                <div className="mr-4">
+                  <p className="text-sm font-medium text-gray-600">ربح اليوم</p>
+                  <p className="text-2xl font-bold text-gray-900">{todayProfit} ج.م</p>
+                </div>
+              </div>
+            </div>
 
-        <div className="p-6">
-          {/* Current Shift Tab */}
-          {activeTab === 'current-shift' && (
-            <div className="space-y-6">
-              {currentShift ? (
-                <>
-                  {/* Shift Info */}
-                  <div className="bg-green-50 border border-green-200 rounded-lg p-4">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <h3 className="text-lg font-semibold text-green-800">الوردية النشطة</h3>
-                        <p className="text-green-600">
-                          بدأت في: {new Date(currentShift.startTime).toLocaleString('ar-EG')}
-                        </p>
-                        <p className="text-green-600">المستخدم: {currentShift.username}</p>
-                      </div>
-                      <div className="text-left">
-                        <p className="text-2xl font-bold text-green-800">{currentShift.totalAmount} ج.م</p>
-                        <p className="text-sm text-green-600">إجمالي الصندوق</p>
-                      </div>
-                    </div>
+            <div className="bg-white p-6 rounded-lg shadow-sm border">
+              <div className="flex items-center">
+                <div className="p-2 bg-blue-100 rounded-lg">
+                  <ShoppingCart className="h-6 w-6 text-blue-600" />
+                </div>
+                <div className="mr-4">
+                  <p className="text-sm font-medium text-gray-600">إيرادات الشهر</p>
+                  <p className="text-2xl font-bold text-gray-900">{monthlyRevenue} ج.م</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-white p-6 rounded-lg shadow-sm border">
+              <div className="flex items-center">
+                <div className="p-2 bg-yellow-100 rounded-lg">
+                  <AlertTriangle className="h-6 w-6 text-yellow-600" />
+                </div>
+                <div className="mr-4">
+                  <p className="text-sm font-medium text-gray-600">مخزون منخفض</p>
+                  <p className="text-2xl font-bold text-gray-900">{lowStockItems.length}</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-white p-6 rounded-lg shadow-sm border">
+              <div className="flex items-center">
+                <div className="p-2 bg-red-100 rounded-lg">
+                  <DollarSign className="h-6 w-6 text-red-600" />
+                </div>
+                <div className="mr-4">
+                  <p className="text-sm font-medium text-gray-600">ديون العملاء</p>
+                  <p className="text-2xl font-bold text-gray-900">{totalCustomerDebt} ج.م</p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Current Shift Status */}
+          <div className="bg-white p-6 rounded-lg shadow-sm border">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">حالة الوردية الحالية</h3>
+            {currentShift ? (
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm text-gray-600">الوردية: {currentShift.id}</p>
+                    <p className="text-sm text-gray-600">المستخدم: {currentShift.username}</p>
+                    <p className="text-sm text-gray-600">بدأت في: {new Date(currentShift.startTime).toLocaleString('ar-EG')}</p>
                   </div>
+                  <div className="text-left">
+                    <p className="text-2xl font-bold text-green-600">{currentShift.totalAmount} ج.م</p>
+                    <p className="text-sm text-gray-600">إجمالي النقدية</p>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <p className="text-sm text-gray-600">المبيعات</p>
+                    <p className="text-lg font-semibold">{currentShift.purchases.length} عملية</p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-gray-600">المصروفات</p>
+                    <p className="text-lg font-semibold">{currentShift.expenses.reduce((total, e) => total + e.amount, 0)} ج.م</p>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="text-center py-8">
+                <Clock className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+                <p className="text-gray-600">لا توجد وردية نشطة حالياً</p>
+              </div>
+            )}
+          </div>
 
-                  {/* Add Purchase */}
-                  <div className="bg-white border rounded-lg p-4">
-                    <h4 className="text-lg font-semibold mb-4">إضافة عملية بيع</h4>
-                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          {/* Low Stock Alert */}
+          {lowStockItems.length > 0 && (
+            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+              <div className="flex items-center">
+                <AlertTriangle className="h-5 w-5 text-yellow-600 ml-2" />
+                <h3 className="text-sm font-medium text-yellow-800">تنبيه: مخزون منخفض</h3>
+              </div>
+              <div className="mt-2">
+                <p className="text-sm text-yellow-700">
+                  الأصناف التالية تحتاج إلى إعادة تموين:
+                </p>
+                <ul className="mt-1 text-sm text-yellow-700">
+                  {lowStockItems.slice(0, 5).map(item => (
+                    <li key={item.id}>• {item.name} ({item.currentAmount} متبقي)</li>
+                  ))}
+                  {lowStockItems.length > 5 && (
+                    <li>• و {lowStockItems.length - 5} أصناف أخرى...</li>
+                  )}
+                </ul>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Inventory Tab */}
+      {activeTab === 'inventory' && (
+        <div className="space-y-6">
+          <div className="flex justify-between items-center">
+            <h2 className="text-xl font-semibold text-gray-900">إدارة المخزون</h2>
+            <div className="flex space-x-2 space-x-reverse">
+              <button
+                onClick={() => setShowAddSupply(true)}
+                className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg flex items-center space-x-2 space-x-reverse"
+              >
+                <Plus className="h-4 w-4" />
+                <span>إضافة مخزون</span>
+              </button>
+              <button
+                onClick={() => setShowAddItem(true)}
+                className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg flex items-center space-x-2 space-x-reverse"
+              >
+                <Plus className="h-4 w-4" />
+                <span>إضافة صنف</span>
+              </button>
+            </div>
+          </div>
+
+          <div className="bg-white rounded-lg shadow-sm border">
+            <div className="p-4 border-b">
+              <div className="flex items-center space-x-4 space-x-reverse">
+                <div className="relative flex-1">
+                  <Search className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
+                  <input
+                    type="text"
+                    placeholder="البحث في الأصناف..."
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    className="w-full pr-10 pl-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">الصورة</th>
+                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">اسم الصنف</th>
+                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">سعر البيع</th>
+                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">سعر التكلفة</th>
+                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">الكمية</th>
+                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">الحالة</th>
+                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">الإجراءات</th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {filteredItems.map((item) => (
+                    <tr key={item.id} className="hover:bg-gray-50">
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        {item.image ? (
+                          <img 
+                            src={item.image} 
+                            alt={item.name}
+                            className="h-12 w-12 object-cover rounded-lg"
+                          />
+                        ) : (
+                          <div className="h-12 w-12 bg-gray-200 rounded-lg flex items-center justify-center">
+                            <Image className="h-6 w-6 text-gray-400" />
+                          </div>
+                        )}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="text-sm font-medium text-gray-900">{item.name}</div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                        {item.sellPrice} ج.م
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                        {item.costPrice} ج.م
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                        {item.currentAmount}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
+                          item.currentAmount > 10
+                            ? 'bg-green-100 text-green-800'
+                            : item.currentAmount > 0
+                            ? 'bg-yellow-100 text-yellow-800'
+                            : 'bg-red-100 text-red-800'
+                        }`}>
+                          {item.currentAmount > 10 ? 'متوفر' : item.currentAmount > 0 ? 'منخفض' : 'نفد'}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                        <div className="flex space-x-2 space-x-reverse">
+                          <button
+                            onClick={() => setEditingItem(item)}
+                            className="text-blue-600 hover:text-blue-900"
+                          >
+                            <Edit className="h-4 w-4" />
+                          </button>
+                          <button
+                            onClick={() => handleDeleteItem(item)}
+                            className="text-red-600 hover:text-red-900"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Current Shift Tab */}
+      {activeTab === 'current-shift' && (
+        <div className="space-y-6">
+          <div className="flex justify-between items-center">
+            <h2 className="text-xl font-semibold text-gray-900">الوردية الحالية</h2>
+            {!currentShift && (
+              <button
+                onClick={handleStartShift}
+                className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg flex items-center space-x-2 space-x-reverse"
+              >
+                <Plus className="h-4 w-4" />
+                <span>بدء وردية جديدة</span>
+              </button>
+            )}
+          </div>
+
+          {currentShift ? (
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {/* Shift Info */}
+              <div className="bg-white p-6 rounded-lg shadow-sm border">
+                <h3 className="text-lg font-semibold text-gray-900 mb-4">معلومات الوردية</h3>
+                <div className="space-y-3">
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">رقم الوردية:</span>
+                    <span className="font-medium">{currentShift.id}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">المستخدم:</span>
+                    <span className="font-medium">{currentShift.username}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">وقت البداية:</span>
+                    <span className="font-medium">{new Date(currentShift.startTime).toLocaleString('ar-EG')}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">إجمالي النقدية:</span>
+                    <span className="font-bold text-green-600">{currentShift.totalAmount} ج.م</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">عدد المبيعات:</span>
+                    <span className="font-medium">{currentShift.purchases.length}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">إجمالي المصروفات:</span>
+                    <span className="font-medium text-red-600">
+                      {currentShift.expenses.reduce((total, e) => total + e.amount, 0)} ج.م
+                    </span>
+                  </div>
+                </div>
+
+                {/* Close Shift */}
+                <div className="mt-6 pt-6 border-t">
+                  <h4 className="font-medium text-gray-900 mb-3">إغلاق الوردية</h4>
+                  <div className="space-y-3">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        النقدية الفعلية في الخزنة
+                      </label>
+                      <input
+                        type="number"
+                        value={manualCash}
+                        onChange={(e) => setManualCash(Number(e.target.value))}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        placeholder="أدخل المبلغ الفعلي"
+                      />
+                    </div>
+                    <button
+                      onClick={handleCloseShift}
+                      className="w-full bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg"
+                    >
+                      إغلاق الوردية
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Add Purchase/Expense */}
+              <div className="space-y-6">
+                {/* Add Purchase */}
+                <div className="bg-white p-6 rounded-lg shadow-sm border">
+                  <h3 className="text-lg font-semibold text-gray-900 mb-4">إضافة مبيعة</h3>
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">الصنف</label>
                       <select
-                        value={purchaseForm.itemId}
-                        onChange={(e) => setPurchaseForm({...purchaseForm, itemId: e.target.value})}
-                        className="border border-gray-300 rounded-md px-3 py-2"
+                        value={newPurchase.itemId}
+                        onChange={(e) => {
+                          const item = items.find(i => i.id === e.target.value);
+                          setNewPurchase({
+                            ...newPurchase,
+                            itemId: e.target.value,
+                            price: item?.sellPrice || 0
+                          });
+                        }}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                       >
-                        <option value="">اختر الصنف</option>
+                        <option value="">اختر صنف</option>
                         {items.filter(item => item.currentAmount > 0).map(item => (
                           <option key={item.id} value={item.id}>
                             {item.name} (متوفر: {item.currentAmount})
                           </option>
                         ))}
                       </select>
-                      <input
-                        type="number"
-                        placeholder="الكمية"
-                        value={purchaseForm.quantity}
-                        onChange={(e) => setPurchaseForm({...purchaseForm, quantity: Math.floor(Number(e.target.value))})}
-                        className="border border-gray-300 rounded-md px-3 py-2"
-                        min="1"
-                      />
-                      <input
-                        type="number"
-                        placeholder="سعر مخصص (اختياري)"
-                        value={purchaseForm.customPrice}
-                        onChange={(e) => setPurchaseForm({...purchaseForm, customPrice: Math.floor(Number(e.target.value))})}
-                        className="border border-gray-300 rounded-md px-3 py-2"
-                        min="0"
-                      />
-                      <button
-                        onClick={handleAddPurchase}
-                        className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700"
-                      >
-                        إضافة
-                      </button>
                     </div>
-                  </div>
-
-                  {/* Current Purchases */}
-                  {currentShift.purchases.length > 0 && (
-                    <div className="bg-white border rounded-lg p-4">
-                      <h4 className="text-lg font-semibold mb-4">المبيعات الحالية</h4>
-                      <div className="overflow-x-auto">
-                        <table className="min-w-full divide-y divide-gray-200">
-                          <thead className="bg-gray-50">
-                            <tr>
-                              <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">الصنف</th>
-                              <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">الكمية</th>
-                              <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">السعر</th>
-                              <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">الإجمالي</th>
-                            </tr>
-                          </thead>
-                          <tbody className="bg-white divide-y divide-gray-200">
-                            {currentShift.purchases.map((purchase, index) => (
-                              <tr key={index}>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{purchase.name}</td>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{purchase.quantity}</td>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{purchase.price} ج.م</td>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{purchase.price * purchase.quantity} ج.م</td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">الكمية</label>
+                        <input
+                          type="number"
+                          min="1"
+                          value={newPurchase.quantity}
+                          onChange={(e) => setNewPurchase({...newPurchase, quantity: Number(e.target.value)})}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">السعر</label>
+                        <input
+                          type="number"
+                          value={newPurchase.price}
+                          onChange={(e) => setNewPurchase({...newPurchase, price: Number(e.target.value)})}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        />
                       </div>
                     </div>
-                  )}
-
-                  {/* Current Expenses */}
-                  <div className="bg-white border rounded-lg p-4">
-                    <div className="flex items-center justify-between mb-4">
-                      <h4 className="text-lg font-semibold">مصروفات الوردية</h4>
-                      <button
-                        onClick={() => setShowAddExpenseForm(true)}
-                        className="bg-red-600 text-white px-4 py-2 rounded-md hover:bg-red-700 flex items-center"
-                      >
-                        <Plus className="h-4 w-4 ml-1" />
-                        إضافة مصروف
-                      </button>
-                    </div>
-
-                    {currentShift.expenses.length > 0 ? (
-                      <div className="overflow-x-auto">
-                        <table className="min-w-full divide-y divide-gray-200">
-                          <thead className="bg-gray-50">
-                            <tr>
-                              <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">المبلغ</th>
-                              <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">السبب</th>
-                              <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">الوقت</th>
-                              <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">الإجراءات</th>
-                            </tr>
-                          </thead>
-                          <tbody className="bg-white divide-y divide-gray-200">
-                            {currentShift.expenses.map((expense) => (
-                              <tr key={expense.id}>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{expense.amount} ج.م</td>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{expense.reason}</td>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                                  {new Date(expense.timestamp).toLocaleString('ar-EG')}
-                                </td>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                                  <button
-                                    onClick={() => handleRemoveExpense(expense)}
-                                    className="text-red-600 hover:text-red-900"
-                                  >
-                                    <Trash2 className="h-4 w-4" />
-                                  </button>
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    ) : (
-                      <p className="text-gray-500 text-center py-4">لا توجد مصروفات</p>
-                    )}
-                  </div>
-
-                  {/* Close Shift */}
-                  <div className="flex justify-end">
                     <button
-                      onClick={handleCloseShift}
-                      className="bg-red-600 text-white px-6 py-2 rounded-md hover:bg-red-700 flex items-center"
+                      onClick={handleAddPurchase}
+                      disabled={!newPurchase.itemId}
+                      className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white px-4 py-2 rounded-lg"
                     >
-                      <StopCircle className="h-4 w-4 ml-2" />
-                      إغلاق الوردية
+                      إضافة مبيعة
                     </button>
                   </div>
-                </>
-              ) : (
-                <div className="text-center py-12">
-                  <PlayCircle className="h-16 w-16 text-gray-400 mx-auto mb-4" />
-                  <h3 className="text-lg font-semibold text-gray-900 mb-2">لا توجد وردية نشطة</h3>
-                  <p className="text-gray-500 mb-6">ابدأ وردية جديدة لبدء العمل</p>
-                  <button
-                    onClick={handleStartShift}
-                    className="bg-blue-600 text-white px-6 py-3 rounded-md hover:bg-blue-700 flex items-center mx-auto"
-                  >
-                    <PlayCircle className="h-5 w-5 ml-2" />
-                    بدء وردية جديدة
-                  </button>
                 </div>
-              )}
-            </div>
-          )}
 
-          {/* Inventory Tab */}
-          {activeTab === 'inventory' && (
-            <div className="space-y-6">
-              <div className="flex justify-between items-center">
-                <h2 className="text-xl font-semibold">إدارة المخزون</h2>
-                <div className="flex space-x-2 space-x-reverse">
-                  <button
-                    onClick={() => setShowAddSupplyForm(true)}
-                    className="bg-green-600 text-white px-4 py-2 rounded-md hover:bg-green-700 flex items-center"
-                  >
-                    <Package className="h-4 w-4 ml-1" />
-                    إضافة توريد
-                  </button>
-                  <button
-                    onClick={() => setShowAddItemForm(true)}
-                    className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 flex items-center"
-                  >
-                    <Plus className="h-4 w-4 ml-1" />
-                    إضافة صنف
-                  </button>
-                </div>
-              </div>
-
-              <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-gray-200">
-                  <thead className="bg-gray-50">
-                    <tr>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">اسم الصنف</th>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">سعر البيع</th>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">سعر التكلفة</th>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">الكمية الحالية</th>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">الربح لكل وحدة</th>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">الإجراءات</th>
-                    </tr>
-                  </thead>
-                  <tbody className="bg-white divide-y divide-gray-200">
-                    {items.map((item) => (
-                      <tr key={item.id}>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          {editingItem?.id === item.id ? (
-                            <input
-                              type="text"
-                              value={editingItem.name}
-                              onChange={(e) => setEditingItem({...editingItem, name: e.target.value})}
-                              className="border border-gray-300 rounded px-2 py-1 w-full"
-                            />
-                          ) : (
-                            <span className="text-sm font-medium text-gray-900">{item.name}</span>
-                          )}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          {editingItem?.id === item.id ? (
-                            <input
-                              type="number"
-                              value={editingItem.sellPrice}
-                              onChange={(e) => setEditingItem({...editingItem, sellPrice: Math.floor(Number(e.target.value))})}
-                              className="border border-gray-300 rounded px-2 py-1 w-20"
-                            />
-                          ) : (
-                            <span className="text-sm text-gray-900">{item.sellPrice} ج.م</span>
-                          )}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          {editingItem?.id === item.id ? (
-                            <input
-                              type="number"
-                              value={editingItem.costPrice}
-                              onChange={(e) => setEditingItem({...editingItem, costPrice: Math.floor(Number(e.target.value))})}
-                              className="border border-gray-300 rounded px-2 py-1 w-20"
-                            />
-                          ) : (
-                            <span className="text-sm text-gray-900">{item.costPrice} ج.م</span>
-                          )}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          {editingItem?.id === item.id ? (
-                            <input
-                              type="number"
-                              value={editingItem.currentAmount}
-                              onChange={(e) => setEditingItem({...editingItem, currentAmount: Math.floor(Number(e.target.value))})}
-                              className="border border-gray-300 rounded px-2 py-1 w-20"
-                            />
-                          ) : (
-                            <span className={`text-sm ${item.currentAmount <= 5 ? 'text-red-600 font-semibold' : 'text-gray-900'}`}>
-                              {item.currentAmount}
-                            </span>
-                          )}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <span className="text-sm text-green-600 font-semibold">
-                            {item.sellPrice - item.costPrice} ج.م
-                          </span>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                          {editingItem?.id === item.id ? (
-                            <div className="flex space-x-2 space-x-reverse">
-                              <button
-                                onClick={() => handleSaveItem(editingItem)}
-                                className="text-green-600 hover:text-green-900"
-                              >
-                                <Save className="h-4 w-4" />
-                              </button>
-                              <button
-                                onClick={() => setEditingItem(null)}
-                                className="text-gray-600 hover:text-gray-900"
-                              >
-                                <X className="h-4 w-4" />
-                              </button>
-                            </div>
-                          ) : (
-                            <div className="flex space-x-2 space-x-reverse">
-                              <button
-                                onClick={() => setEditingItem(item)}
-                                className="text-blue-600 hover:text-blue-900"
-                              >
-                                <Edit className="h-4 w-4" />
-                              </button>
-                              <button
-                                onClick={() => handleDeleteItem(item)}
-                                className="text-red-600 hover:text-red-900"
-                              >
-                                <Trash2 className="h-4 w-4" />
-                              </button>
-                            </div>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
-
-          {/* Customers Tab */}
-          {activeTab === 'customers' && (
-            <div className="space-y-6">
-              <h2 className="text-xl font-semibold">إدارة العملاء</h2>
-              
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                {/* Today's Items */}
-                <div className="bg-white border rounded-lg p-4">
-                  <h3 className="text-lg font-semibold mb-4">أصناف اليوم</h3>
-                  {customerPurchases.filter(p => {
-                    const today = new Date().toDateString();
-                    return new Date(p.timestamp).toDateString() === today;
-                  }).length > 0 ? (
-                    <div className="space-y-3">
-                      {customerPurchases
-                        .filter(p => {
-                          const today = new Date().toDateString();
-                          return new Date(p.timestamp).toDateString() === today;
-                        })
-                        .map(purchase => (
-                          <div key={purchase.id} className="border rounded p-3">
-                            <div className="flex justify-between items-start">
-                              <div>
-                                <h4 className="font-medium">{purchase.customerName}</h4>
-                                <p className="text-sm text-gray-600">
-                                  {purchase.items.map(item => `${item.name} (${item.quantity})`).join(', ')}
-                                </p>
-                                <p className="text-sm text-gray-500">
-                                  {new Date(purchase.timestamp).toLocaleString('ar-EG')}
-                                </p>
-                              </div>
-                              <div className="text-left">
-                                <p className="font-semibold text-red-600">{purchase.totalAmount} ج.م</p>
-                                <span className="text-xs bg-red-100 text-red-800 px-2 py-1 rounded">
-                                  غير مدفوع
-                                </span>
-                              </div>
-                            </div>
-                          </div>
-                        ))}
+                {/* Add Expense */}
+                <div className="bg-white p-6 rounded-lg shadow-sm border">
+                  <h3 className="text-lg font-semibold text-gray-900 mb-4">إضافة مصروف</h3>
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">المبلغ</label>
+                      <input
+                        type="number"
+                        value={newExpense.amount}
+                        onChange={(e) => setNewExpense({...newExpense, amount: Number(e.target.value)})}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        placeholder="أدخل المبلغ"
+                      />
                     </div>
-                  ) : (
-                    <p className="text-gray-500 text-center py-8">لا توجد أصناف لليوم</p>
-                  )}
-                </div>
-
-                {/* All-Time Items */}
-                <div className="bg-white border rounded-lg p-4">
-                  <h3 className="text-lg font-semibold mb-4">جميع الأصناف</h3>
-                  {customerPurchases.length > 0 ? (
-                    <div className="space-y-3 max-h-96 overflow-y-auto">
-                      {customerPurchases.map(purchase => (
-                        <div key={purchase.id} className="border rounded p-3">
-                          <div className="flex justify-between items-start">
-                            <div>
-                              <h4 className="font-medium">{purchase.customerName}</h4>
-                              <p className="text-sm text-gray-600">
-                                {purchase.items.map(item => `${item.name} (${item.quantity})`).join(', ')}
-                              </p>
-                              <p className="text-sm text-gray-500">
-                                {new Date(purchase.timestamp).toLocaleString('ar-EG')}
-                              </p>
-                            </div>
-                            <div className="text-left">
-                              <p className="font-semibold text-red-600">{purchase.totalAmount} ج.م</p>
-                              <span className="text-xs bg-red-100 text-red-800 px-2 py-1 rounded">
-                                غير مدفوع
-                              </span>
-                            </div>
-                          </div>
-                        </div>
-                      ))}
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">السبب</label>
+                      <input
+                        type="text"
+                        value={newExpense.reason}
+                        onChange={(e) => setNewExpense({...newExpense, reason: e.target.value})}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        placeholder="سبب المصروف"
+                      />
                     </div>
-                  ) : (
-                    <p className="text-gray-500 text-center py-8">لا توجد أصناف</p>
-                  )}
-                </div>
-              </div>
-
-              {/* Customers List */}
-              <div className="bg-white border rounded-lg p-4">
-                <h3 className="text-lg font-semibold mb-4">قائمة العملاء</h3>
-                {customers.length > 0 ? (
-                  <div className="overflow-x-auto">
-                    <table className="min-w-full divide-y divide-gray-200">
-                      <thead className="bg-gray-50">
-                        <tr>
-                          <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">اسم العميل</th>
-                          <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">تاريخ الإنشاء</th>
-                          <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">إجمالي الدين</th>
-                          <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">الإجراءات</th>
-                        </tr>
-                      </thead>
-                      <tbody className="bg-white divide-y divide-gray-200">
-                        {customers.map(customer => {
-                          const customerDebt = customerPurchases
-                            .filter(p => p.customerId === customer.id)
-                            .reduce((total, p) => total + p.totalAmount, 0);
-                          
-                          return (
-                            <tr key={customer.id}>
-                              <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                                {customer.name}
-                              </td>
-                              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                                {new Date(customer.createdAt).toLocaleDateString('ar-EG')}
-                              </td>
-                              <td className="px-6 py-4 whitespace-nowrap text-sm text-red-600 font-semibold">
-                                {customerDebt} ج.م
-                              </td>
-                              <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                                <button
-                                  onClick={() => {
-                                    if (confirm(`هل أنت متأكد من حذف العميل "${customer.name}" وجميع بياناته؟`)) {
-                                      // Delete customer and all associated purchases
-                                      // This would need to be implemented
-                                    }
-                                  }}
-                                  className="text-red-600 hover:text-red-900"
-                                >
-                                  <Trash2 className="h-4 w-4" />
-                                </button>
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
+                    <button
+                      onClick={handleAddExpense}
+                      disabled={newExpense.amount <= 0}
+                      className="w-full bg-red-600 hover:bg-red-700 disabled:bg-gray-400 text-white px-4 py-2 rounded-lg"
+                    >
+                      إضافة مصروف
+                    </button>
                   </div>
-                ) : (
-                  <p className="text-gray-500 text-center py-8">لا يوجد عملاء</p>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* Shifts Tab */}
-          {activeTab === 'shifts' && (
-            <div className="space-y-6">
-              <div className="flex justify-between items-center">
-                <h2 className="text-xl font-semibold">تاريخ الورديات</h2>
-                <button
-                  onClick={() => generateShiftsPDF(shifts, section)}
-                  className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 flex items-center"
-                >
-                  <Receipt className="h-4 w-4 ml-1" />
-                  تصدير PDF
-                </button>
-              </div>
-
-              <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-gray-200">
-                  <thead className="bg-gray-50">
-                    <tr>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">رقم الوردية</th>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">تاريخ البداية</th>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">تاريخ النهاية</th>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">المستخدم</th>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">إجمالي الصندوق</th>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">الحالة</th>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">الإجراءات</th>
-                    </tr>
-                  </thead>
-                  <tbody className="bg-white divide-y divide-gray-200">
-                    {shifts.map((shift) => (
-                      <tr key={shift.id}>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                          {shift.id}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                          {new Date(shift.startTime).toLocaleString('ar-EG')}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                          {shift.endTime ? new Date(shift.endTime).toLocaleString('ar-EG') : 'نشطة'}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                          {shift.username}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                          {shift.totalAmount} ج.م
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                            shift.status === 'active' 
-                              ? 'bg-green-100 text-green-800'
-                              : shift.validationStatus === 'balanced'
-                              ? 'bg-blue-100 text-blue-800'
-                              : 'bg-red-100 text-red-800'
-                          }`}>
-                            {shift.status === 'active' ? 'نشطة' : 
-                             shift.validationStatus === 'balanced' ? 'متوازنة' : 'بها فروق'}
-                          </span>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                          <button
-                            onClick={() => setShowShiftDetails(shift.id)}
-                            className="text-blue-600 hover:text-blue-900"
-                          >
-                            <Eye className="h-4 w-4" />
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
-
-          {/* Profits Tab */}
-          {activeTab === 'profits' && (
-            <div className="space-y-6">
-              <h2 className="text-xl font-semibold">تقارير الأرباح</h2>
-              
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                <div className="bg-blue-50 p-6 rounded-lg">
-                  <h3 className="text-lg font-semibold text-blue-800 mb-2">ربح اليوم</h3>
-                  <p className="text-3xl font-bold text-blue-900">{stats.todayProfit} ج.م</p>
-                </div>
-                
-                <div className="bg-green-50 p-6 rounded-lg">
-                  <h3 className="text-lg font-semibold text-green-800 mb-2">إيرادات الشهر</h3>
-                  <p className="text-3xl font-bold text-green-900">{stats.monthlyRevenue} ج.م</p>
-                </div>
-                
-                <div className="bg-purple-50 p-6 rounded-lg">
-                  <h3 className="text-lg font-semibold text-purple-800 mb-2">ديون العملاء</h3>
-                  <p className="text-3xl font-bold text-purple-900">{stats.pendingDebt} ج.م</p>
                 </div>
               </div>
 
-              {/* Monthly Summary Button */}
-              <div className="flex justify-center">
-                <button
-                  onClick={() => generateMonthlySummaryPDF(shifts, items, section, new Date().toISOString().slice(0, 7))}
-                  className="bg-green-600 text-white px-6 py-3 rounded-md hover:bg-green-700 flex items-center"
-                >
-                  <BarChart3 className="h-5 w-5 ml-2" />
-                  تصدير الملخص الشهري
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* Users Tab */}
-          {activeTab === 'users' && (
-            <div className="space-y-6">
-              <div className="flex justify-between items-center">
-                <h2 className="text-xl font-semibold">إدارة المستخدمين</h2>
-                <button
-                  onClick={() => setShowAddUserForm(true)}
-                  className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 flex items-center"
-                >
-                  <Plus className="h-4 w-4 ml-1" />
-                  إضافة مستخدم
-                </button>
-              </div>
-
-              <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-gray-200">
-                  <thead className="bg-gray-50">
-                    <tr>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">اسم المستخدم</th>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">كلمة المرور</th>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">الدور</th>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">تاريخ الإنشاء</th>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">الإجراءات</th>
-                    </tr>
-                  </thead>
-                  <tbody className="bg-white divide-y divide-gray-200">
-                    {users.map((userItem) => (
-                      <tr key={userItem.id}>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          {editingUser?.id === userItem.id ? (
-                            <input
-                              type="text"
-                              value={editingUser.username}
-                              onChange={(e) => setEditingUser({...editingUser, username: e.target.value})}
-                              className="border border-gray-300 rounded px-2 py-1 w-full"
-                            />
-                          ) : (
-                            <span className="text-sm font-medium text-gray-900">{userItem.username}</span>
-                          )}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          {editingUser?.id === userItem.id ? (
-                            <input
-                              type="text"
-                              value={editingUser.password}
-                              onChange={(e) => setEditingUser({...editingUser, password: e.target.value})}
-                              className="border border-gray-300 rounded px-2 py-1 w-full"
-                            />
-                          ) : (
-                            <span className="text-sm text-gray-900">••••••••</span>
-                          )}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          {editingUser?.id === userItem.id ? (
-                            <select
-                              value={editingUser.role}
-                              onChange={(e) => setEditingUser({...editingUser, role: e.target.value as 'normal' | 'admin'})}
-                              className="border border-gray-300 rounded px-2 py-1"
-                            >
-                              <option value="normal">مستخدم عادي</option>
-                              <option value="admin">مدير</option>
-                            </select>
-                          ) : (
-                            <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                              userItem.role === 'admin' ? 'bg-red-100 text-red-800' : 'bg-green-100 text-green-800'
-                            }`}>
-                              {userItem.role === 'admin' ? 'مدير' : 'مستخدم عادي'}
-                            </span>
-                          )}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                          {new Date(userItem.createdAt).toLocaleDateString('ar-EG')}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                          {editingUser?.id === userItem.id ? (
-                            <div className="flex space-x-2 space-x-reverse">
-                              <button
-                                onClick={() => handleSaveUser(editingUser)}
-                                className="text-green-600 hover:text-green-900"
-                              >
-                                <Save className="h-4 w-4" />
-                              </button>
-                              <button
-                                onClick={() => setEditingUser(null)}
-                                className="text-gray-600 hover:text-gray-900"
-                              >
-                                <X className="h-4 w-4" />
-                              </button>
-                            </div>
-                          ) : (
-                            <div className="flex space-x-2 space-x-reverse">
-                              <button
-                                onClick={() => setEditingUser(userItem)}
-                                className="text-blue-600 hover:text-blue-900"
-                              >
-                                <Edit className="h-4 w-4" />
-                              </button>
-                              <button
-                                onClick={() => handleDeleteUser(userItem)}
-                                className="text-red-600 hover:text-red-900"
-                                disabled={userItem.id === user?.id}
-                              >
-                                <Trash2 className="h-4 w-4" />
-                              </button>
-                            </div>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
-
-          {/* Admin Log Tab */}
-          {activeTab === 'admin-log' && (
-            <div className="space-y-6">
-              <h2 className="text-xl font-semibold">سجل الإدارة</h2>
-              
-              <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-gray-200">
-                  <thead className="bg-gray-50">
-                    <tr>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">نوع الإجراء</th>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">الصنف/الوردية المتأثرة</th>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">تفاصيل التغيير</th>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">الوقت</th>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">اسم المدير</th>
-                    </tr>
-                  </thead>
-                  <tbody className="bg-white divide-y divide-gray-200">
-                    {adminLogs.map((log) => (
-                      <tr key={log.id}>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                          {log.actionType}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                          {log.itemOrShiftAffected}
-                        </td>
-                        <td className="px-6 py-4 text-sm text-gray-900 max-w-xs truncate">
-                          {log.changeDetails}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                          {new Date(log.timestamp).toLocaleString('ar-EG')}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                          {log.adminName}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
-
-          {/* Debts Tab (Supplement only) */}
-          {activeTab === 'debts' && section === 'supplement' && (
-            <div className="space-y-6">
-              <div className="flex justify-between items-center">
-                <h2 className="text-xl font-semibold">إدارة ديون المكملات</h2>
-                <button
-                  onClick={() => setShowAddPaymentForm(true)}
-                  className="bg-green-600 text-white px-4 py-2 rounded-md hover:bg-green-700 flex items-center"
-                >
-                  <DollarSign className="h-4 w-4 ml-1" />
-                  إضافة دفعة
-                </button>
-              </div>
-
-              <div className="bg-white border rounded-lg p-6">
-                <div className="text-center">
-                  <h3 className="text-2xl font-bold text-gray-900 mb-2">إجمالي الدين الحالي</h3>
-                  <p className="text-4xl font-bold text-red-600">
-                    {supplementDebt?.amount || 0} ج.م
-                  </p>
-                  {supplementDebt && (
-                    <p className="text-sm text-gray-500 mt-2">
-                      آخر تحديث: {new Date(supplementDebt.lastUpdated).toLocaleString('ar-EG')} 
-                      بواسطة {supplementDebt.updatedBy}
-                    </p>
+              {/* Recent Purchases */}
+              <div className="bg-white p-6 rounded-lg shadow-sm border">
+                <h3 className="text-lg font-semibold text-gray-900 mb-4">المبيعات الأخيرة</h3>
+                <div className="space-y-2 max-h-64 overflow-y-auto">
+                  {currentShift.purchases.slice(-10).reverse().map((purchase, index) => (
+                    <div key={index} className="flex justify-between items-center py-2 border-b border-gray-100">
+                      <div>
+                        <span className="font-medium">{purchase.name}</span>
+                        <span className="text-gray-600 text-sm mr-2">x{purchase.quantity}</span>
+                      </div>
+                      <span className="font-medium text-green-600">{purchase.price * purchase.quantity} ج.م</span>
+                    </div>
+                  ))}
+                  {currentShift.purchases.length === 0 && (
+                    <p className="text-gray-500 text-center py-4">لا توجد مبيعات بعد</p>
                   )}
                 </div>
               </div>
 
-              <div className="bg-white border rounded-lg p-4">
-                <h3 className="text-lg font-semibold mb-4">تاريخ المدفوعات والتوريدات</h3>
-                <div className="space-y-3">
-                  {/* This would show payment history - needs to be implemented */}
-                  <p className="text-gray-500 text-center py-8">سيتم عرض تاريخ المدفوعات والتوريدات هنا</p>
+              {/* Recent Expenses */}
+              <div className="bg-white p-6 rounded-lg shadow-sm border">
+                <h3 className="text-lg font-semibold text-gray-900 mb-4">المصروفات الأخيرة</h3>
+                <div className="space-y-2 max-h-64 overflow-y-auto">
+                  {currentShift.expenses.slice(-10).reverse().map((expense) => (
+                    <div key={expense.id} className="flex justify-between items-center py-2 border-b border-gray-100">
+                      <div>
+                        <span className="font-medium">{expense.reason}</span>
+                        <span className="text-gray-600 text-sm block">{new Date(expense.timestamp).toLocaleString('ar-EG')}</span>
+                      </div>
+                      <div className="flex items-center space-x-2 space-x-reverse">
+                        <span className="font-medium text-red-600">{expense.amount} ج.م</span>
+                        <button
+                          onClick={() => handleRemoveExpense(expense.id)}
+                          className="text-red-600 hover:text-red-800"
+                          title="إلغاء المصروف"
+                        >
+                          <X className="h-4 w-4" />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                  {currentShift.expenses.length === 0 && (
+                    <p className="text-gray-500 text-center py-4">لا توجد مصروفات بعد</p>
+                  )}
                 </div>
               </div>
+            </div>
+          ) : (
+            <div className="bg-white p-12 rounded-lg shadow-sm border text-center">
+              <Clock className="h-16 w-16 text-gray-400 mx-auto mb-4" />
+              <h3 className="text-lg font-medium text-gray-900 mb-2">لا توجد وردية نشطة</h3>
+              <p className="text-gray-600 mb-6">ابدأ وردية جديدة لتتمكن من إدارة المبيعات والمصروفات</p>
+              <button
+                onClick={handleStartShift}
+                className="bg-green-600 hover:bg-green-700 text-white px-6 py-3 rounded-lg flex items-center space-x-2 space-x-reverse mx-auto"
+              >
+                <Plus className="h-5 w-5" />
+                <span>بدء وردية جديدة</span>
+              </button>
             </div>
           )}
         </div>
-      </div>
+      )}
 
-      {/* Modals */}
-      
-      {/* Add Item Modal */}
-      {showAddItemForm && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-full max-w-md">
-            <h3 className="text-lg font-semibold mb-4">إضافة صنف جديد</h3>
-            <div className="space-y-4">
-              <input
-                type="text"
-                placeholder="اسم الصنف"
-                value={newItem.name}
-                onChange={(e) => setNewItem({...newItem, name: e.target.value})}
-                className="w-full border border-gray-300 rounded-md px-3 py-2"
-              />
-              <input
-                type="number"
-                placeholder="سعر البيع"
-                value={newItem.sellPrice}
-                onChange={(e) => setNewItem({...newItem, sellPrice: Math.floor(Number(e.target.value))})}
-                className="w-full border border-gray-300 rounded-md px-3 py-2"
-              />
-              <input
-                type="number"
-                placeholder="سعر التكلفة"
-                value={newItem.costPrice}
-                onChange={(e) => setNewItem({...newItem, costPrice: Math.floor(Number(e.target.value))})}
-                className="w-full border border-gray-300 rounded-md px-3 py-2"
-              />
-              <input
-                type="number"
-                placeholder="الكمية الحالية"
-                value={newItem.currentAmount}
-                onChange={(e) => setNewItem({...newItem, currentAmount: Math.floor(Number(e.target.value))})}
-                className="w-full border border-gray-300 rounded-md px-3 py-2"
-              />
+      {/* Shifts Tab */}
+      {activeTab === 'shifts' && (
+        <div className="space-y-6">
+          <div className="flex justify-between items-center">
+            <h2 className="text-xl font-semibold text-gray-900">سجل الورديات</h2>
+            <button
+              onClick={() => generateShiftsPDF(shifts, section)}
+              className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg flex items-center space-x-2 space-x-reverse"
+            >
+              <Download className="h-4 w-4" />
+              <span>تصدير PDF</span>
+            </button>
+          </div>
+
+          <div className="bg-white rounded-lg shadow-sm border">
+            <div className="p-4 border-b">
+              <div className="relative">
+                <Search className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
+                <input
+                  type="text"
+                  placeholder="البحث في الورديات..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="w-full pr-10 pl-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+              </div>
             </div>
-            <div className="flex justify-end space-x-2 space-x-reverse mt-6">
-              <button
-                onClick={() => setShowAddItemForm(false)}
-                className="px-4 py-2 text-gray-600 border border-gray-300 rounded-md hover:bg-gray-50"
-              >
-                إلغاء
-              </button>
-              <button
-                onClick={handleAddItem}
-                className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
-              >
-                إضافة
-              </button>
+
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">رقم الوردية</th>
+                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">المستخدم</th>
+                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">بداية الوردية</th>
+                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">نهاية الوردية</th>
+                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">إجمالي النقدية</th>
+                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">الحالة</th>
+                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">الإجراءات</th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {filteredShifts.map((shift) => (
+                    <tr key={shift.id} className="hover:bg-gray-50">
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                        {shift.id}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                        {shift.username}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                        {new Date(shift.startTime).toLocaleString('ar-EG')}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                        {shift.endTime ? new Date(shift.endTime).toLocaleString('ar-EG') : 'نشطة'}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                        {shift.totalAmount} ج.م
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
+                          shift.status === 'active'
+                            ? 'bg-green-100 text-green-800'
+                            : shift.validationStatus === 'balanced'
+                            ? 'bg-blue-100 text-blue-800'
+                            : 'bg-red-100 text-red-800'
+                        }`}>
+                          {shift.status === 'active' ? 'نشطة' : 
+                           shift.validationStatus === 'balanced' ? 'متوازنة' : 'بها اختلاف'}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                        <button
+                          onClick={() => {
+                            setSelectedShift(shift);
+                            setShowShiftDetails(true);
+                          }}
+                          className="text-blue-600 hover:text-blue-900"
+                        >
+                          <Eye className="h-4 w-4" />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           </div>
         </div>
       )}
 
-      {/* Add Supply Modal */}
-      {showAddSupplyForm && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-full max-w-2xl">
-            <h3 className="text-lg font-semibold mb-4">إضافة توريد</h3>
-            <div className="space-y-4">
-              {items.map(item => (
-                <div key={item.id} className="flex items-center space-x-4 space-x-reverse">
-                  <span className="flex-1 text-sm">{item.name}</span>
+      {/* Customers Tab */}
+      {activeTab === 'customers' && (
+        <div className="space-y-6">
+          <div className="flex justify-between items-center">
+            <h2 className="text-xl font-semibold text-gray-900">إدارة العملاء</h2>
+            <button
+              onClick={() => setShowAddCustomer(true)}
+              className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg flex items-center space-x-2 space-x-reverse"
+            >
+              <Plus className="h-4 w-4" />
+              <span>إضافة عميل</span>
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Customers List */}
+            <div className="bg-white rounded-lg shadow-sm border">
+              <div className="p-4 border-b">
+                <h3 className="text-lg font-semibold text-gray-900">قائمة العملاء</h3>
+              </div>
+              <div className="p-4">
+                <div className="space-y-3">
+                  {customers.map(customer => (
+                    <div key={customer.id} className="flex justify-between items-center p-3 bg-gray-50 rounded-lg">
+                      <div>
+                        <p className="font-medium text-gray-900">{customer.name}</p>
+                        <p className="text-sm text-gray-600">
+                          تاريخ الإضافة: {new Date(customer.createdAt).toLocaleDateString('ar-EG')}
+                        </p>
+                      </div>
+                    </div>
+                  ))}
+                  {customers.length === 0 && (
+                    <p className="text-gray-500 text-center py-8">لا يوجد عملاء مسجلين</p>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Customer Debts */}
+            <div className="bg-white rounded-lg shadow-sm border">
+              <div className="p-4 border-b">
+                <h3 className="text-lg font-semibold text-gray-900">ديون العملاء</h3>
+              </div>
+              <div className="p-4">
+                <div className="space-y-3">
+                  {customerPurchases.map(purchase => (
+                    <div key={purchase.id} className="p-3 bg-red-50 border border-red-200 rounded-lg">
+                      <div className="flex justify-between items-start">
+                        <div>
+                          <p className="font-medium text-gray-900">{purchase.customerName}</p>
+                          <p className="text-sm text-gray-600">
+                            {new Date(purchase.timestamp).toLocaleDateString('ar-EG')}
+                          </p>
+                          <p className="text-sm text-gray-600">
+                            الأصناف: {purchase.items.map(item => `${item.name} (${item.quantity})`).join(', ')}
+                          </p>
+                        </div>
+                        <div className="text-left">
+                          <p className="font-bold text-red-600">{purchase.totalAmount} ج.م</p>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                  {customerPurchases.length === 0 && (
+                    <p className="text-gray-500 text-center py-8">لا توجد ديون للعملاء</p>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Users Tab */}
+      {activeTab === 'users' && (
+        <div className="space-y-6">
+          <div className="flex justify-between items-center">
+            <h2 className="text-xl font-semibold text-gray-900">إدارة المستخدمين</h2>
+            <button
+              onClick={() => setShowAddUser(true)}
+              className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg flex items-center space-x-2 space-x-reverse"
+            >
+              <Plus className="h-4 w-4" />
+              <span>إضافة مستخدم</span>
+            </button>
+          </div>
+
+          <div className="bg-white rounded-lg shadow-sm border">
+            <div className="p-4 border-b">
+              <div className="relative">
+                <Search className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
+                <input
+                  type="text"
+                  placeholder="البحث في المستخدمين..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="w-full pr-10 pl-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+              </div>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">اسم المستخدم</th>
+                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">الدور</th>
+                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">تاريخ الإنشاء</th>
+                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">الإجراءات</th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {filteredUsers.map((userItem) => (
+                    <tr key={userItem.id} className="hover:bg-gray-50">
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="text-sm font-medium text-gray-900">{userItem.username}</div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
+                          userItem.role === 'admin'
+                            ? 'bg-purple-100 text-purple-800'
+                            : 'bg-gray-100 text-gray-800'
+                        }`}>
+                          {userItem.role === 'admin' ? 'مدير' : 'مستخدم عادي'}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                        {new Date(userItem.createdAt).toLocaleDateString('ar-EG')}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                        <div className="flex space-x-2 space-x-reverse">
+                          <button
+                            onClick={() => setEditingUser(userItem)}
+                            className="text-blue-600 hover:text-blue-900"
+                          >
+                            <Edit className="h-4 w-4" />
+                          </button>
+                          {userItem.id !== user?.id && (
+                            <button
+                              onClick={() => handleDeleteUser(userItem)}
+                              className="text-red-600 hover:text-red-900"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Admin Logs Tab */}
+      {activeTab === 'admin-logs' && (
+        <div className="space-y-6">
+          <div className="flex justify-between items-center">
+            <h2 className="text-xl font-semibold text-gray-900">سجل الإدارة</h2>
+            <div className="flex items-center space-x-2 space-x-reverse">
+              <RefreshCw 
+                className="h-5 w-5 text-gray-400 cursor-pointer hover:text-gray-600" 
+                onClick={loadData}
+              />
+              <span className="text-sm text-gray-500">تحديث تلقائي</span>
+            </div>
+          </div>
+
+          <div className="bg-white rounded-lg shadow-sm border">
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">نوع الإجراء</th>
+                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">الصنف/الوردية المتأثرة</th>
+                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">تفاصيل التغيير</th>
+                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">الوقت</th>
+                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">اسم المدير</th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {adminLogs.map((log) => (
+                    <tr key={log.id} className="hover:bg-gray-50">
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-blue-100 text-blue-800">
+                          {log.actionType}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                        {log.itemOrShiftAffected}
+                      </td>
+                      <td className="px-6 py-4 text-sm text-gray-900 max-w-xs truncate">
+                        {log.changeDetails}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                        {new Date(log.timestamp).toLocaleString('ar-EG')}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                        {log.adminName}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Debts Tab (Supplements only) */}
+      {activeTab === 'debts' && section === 'supplement' && (
+        <div className="space-y-6">
+          <div className="flex justify-between items-center">
+            <h2 className="text-xl font-semibold text-gray-900">إدارة الديون</h2>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Current Debt */}
+            <div className="bg-white p-6 rounded-lg shadow-sm border">
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">دين المكملات الحالي</h3>
+              <div className="text-center">
+                <div className="text-4xl font-bold text-red-600 mb-2">
+                  {supplementDebt?.amount || 0} ج.م
+                </div>
+                <p className="text-gray-600 mb-4">
+                  آخر تحديث: {supplementDebt?.lastUpdated ? 
+                    new Date(supplementDebt.lastUpdated).toLocaleString('ar-EG') : 
+                    'لم يتم التحديث بعد'
+                  }
+                </p>
+                <p className="text-sm text-gray-500">
+                  بواسطة: {supplementDebt?.updatedBy || 'غير محدد'}
+                </p>
+              </div>
+            </div>
+
+            {/* Add Payment */}
+            <div className="bg-white p-6 rounded-lg shadow-sm border">
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">إضافة دفعة</h3>
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    مبلغ الدفعة
+                  </label>
                   <input
                     type="number"
-                    placeholder="الكمية"
-                    value={supplyItems[item.id] || ''}
-                    onChange={(e) => {
-                      const quantity = Math.floor(Number(e.target.value)) || 0;
-                      setSupplyItems({...supplyItems, [item.id]: quantity});
-                    }}
-                    className="w-24 border border-gray-300 rounded-md px-2 py-1"
-                    min="0"
+                    value={debtPayment}
+                    onChange={(e) => setDebtPayment(Number(e.target.value))}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    placeholder="أدخل مبلغ الدفعة"
                   />
                 </div>
-              ))}
-              <input
-                type="number"
-                placeholder="التكلفة الإجمالية"
-                value={supplyTotalCost}
-                onChange={(e) => setSupplyTotalCost(Math.floor(Number(e.target.value)))}
-                className="w-full border border-gray-300 rounded-md px-3 py-2"
-              />
+                <button
+                  onClick={handleAddDebtPayment}
+                  disabled={debtPayment <= 0}
+                  className="w-full bg-green-600 hover:bg-green-700 disabled:bg-gray-400 text-white px-4 py-2 rounded-lg"
+                >
+                  إضافة دفعة
+                </button>
+              </div>
             </div>
-            <div className="flex justify-end space-x-2 space-x-reverse mt-6">
+          </div>
+
+          {/* Payment History Placeholder */}
+          <div className="bg-white p-6 rounded-lg shadow-sm border">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">سجل المدفوعات</h3>
+            <div className="text-center py-8">
+              <DollarSign className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+              <p className="text-gray-600">سيتم إضافة سجل المدفوعات قريباً</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Add Item Modal */}
+      {showAddItem && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-md">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-semibold text-gray-900">إضافة صنف جديد</h3>
               <button
-                onClick={() => {
-                  setShowAddSupplyForm(false);
-                  setSupplyItems({});
-                  setSupplyTotalCost(0);
-                }}
-                className="px-4 py-2 text-gray-600 border border-gray-300 rounded-md hover:bg-gray-50"
+                onClick={() => setShowAddItem(false)}
+                className="text-gray-400 hover:text-gray-600"
               >
-                إلغاء
+                <X className="h-6 w-6" />
               </button>
+            </div>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">اسم الصنف</label>
+                <input
+                  type="text"
+                  value={newItem.name}
+                  onChange={(e) => setNewItem({...newItem, name: e.target.value})}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  placeholder="أدخل اسم الصنف"
+                />
+              </div>
+              
+              {/* Image Upload */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">صورة الصنف</label>
+                <div className="space-y-2">
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) => handleImageUpload(e)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  />
+                  {newItem.image && (
+                    <div className="relative">
+                      <img 
+                        src={newItem.image} 
+                        alt="معاينة الصورة"
+                        className="w-full h-32 object-cover rounded-lg"
+                      />
+                      <button
+                        onClick={() => removeImage()}
+                        className="absolute top-2 right-2 bg-red-500 text-white rounded-full p-1 hover:bg-red-600"
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">سعر البيع</label>
+                  <input
+                    type="number"
+                    value={newItem.sellPrice}
+                    onChange={(e) => setNewItem({...newItem, sellPrice: Number(e.target.value)})}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">سعر التكلفة</label>
+                  <input
+                    type="number"
+                    value={newItem.costPrice}
+                    onChange={(e) => setNewItem({...newItem, costPrice: Number(e.target.value)})}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">الكمية الأولية</label>
+                <input
+                  type="number"
+                  value={newItem.currentAmount}
+                  onChange={(e) => setNewItem({...newItem, currentAmount: Number(e.target.value)})}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+              </div>
+              <div className="flex space-x-3 space-x-reverse">
+                <button
+                  onClick={handleAddItem}
+                  className="flex-1 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg"
+                >
+                  إضافة
+                </button>
+                <button
+                  onClick={() => setShowAddItem(false)}
+                  className="flex-1 bg-gray-300 hover:bg-gray-400 text-gray-700 px-4 py-2 rounded-lg"
+                >
+                  إلغاء
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Item Modal */}
+      {editingItem && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-md">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-semibold text-gray-900">تعديل الصنف</h3>
               <button
-                onClick={handleAddSupply}
-                className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700"
+                onClick={() => setEditingItem(null)}
+                className="text-gray-400 hover:text-gray-600"
               >
-                إضافة التوريد
+                <X className="h-6 w-6" />
               </button>
+            </div>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">اسم الصنف</label>
+                <input
+                  type="text"
+                  value={editingItem.name}
+                  onChange={(e) => setEditingItem({...editingItem, name: e.target.value})}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+              </div>
+              
+              {/* Image Upload for Edit */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">صورة الصنف</label>
+                <div className="space-y-2">
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) => handleImageUpload(e, true)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  />
+                  {editingItem.image && (
+                    <div className="relative">
+                      <img 
+                        src={editingItem.image} 
+                        alt="معاينة الصورة"
+                        className="w-full h-32 object-cover rounded-lg"
+                      />
+                      <button
+                        onClick={() => removeImage(true)}
+                        className="absolute top-2 right-2 bg-red-500 text-white rounded-full p-1 hover:bg-red-600"
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">سعر البيع</label>
+                  <input
+                    type="number"
+                    value={editingItem.sellPrice}
+                    onChange={(e) => setEditingItem({...editingItem, sellPrice: Number(e.target.value)})}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">سعر التكلفة</label>
+                  <input
+                    type="number"
+                    value={editingItem.costPrice}
+                    onChange={(e) => setEditingItem({...editingItem, costPrice: Number(e.target.value)})}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">الكمية الحالية</label>
+                <input
+                  type="number"
+                  value={editingItem.currentAmount}
+                  onChange={(e) => setEditingItem({...editingItem, currentAmount: Number(e.target.value)})}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+              </div>
+              <div className="flex space-x-3 space-x-reverse">
+                <button
+                  onClick={handleEditItem}
+                  className="flex-1 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg"
+                >
+                  حفظ التغييرات
+                </button>
+                <button
+                  onClick={() => setEditingItem(null)}
+                  className="flex-1 bg-gray-300 hover:bg-gray-400 text-gray-700 px-4 py-2 rounded-lg"
+                >
+                  إلغاء
+                </button>
+              </div>
             </div>
           </div>
         </div>
       )}
 
       {/* Add User Modal */}
-      {showAddUserForm && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+      {showAddUser && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-lg p-6 w-full max-w-md">
-            <h3 className="text-lg font-semibold mb-4">إضافة مستخدم جديد</h3>
-            <div className="space-y-4">
-              <input
-                type="text"
-                placeholder="اسم المستخدم"
-                value={newUser.username}
-                onChange={(e) => setNewUser({...newUser, username: e.target.value})}
-                className="w-full border border-gray-300 rounded-md px-3 py-2"
-              />
-              <input
-                type="password"
-                placeholder="كلمة المرور"
-                value={newUser.password}
-                onChange={(e) => setNewUser({...newUser, password: e.target.value})}
-                className="w-full border border-gray-300 rounded-md px-3 py-2"
-              />
-              <select
-                value={newUser.role}
-                onChange={(e) => setNewUser({...newUser, role: e.target.value as 'normal' | 'admin'})}
-                className="w-full border border-gray-300 rounded-md px-3 py-2"
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-semibold text-gray-900">إضافة مستخدم جديد</h3>
+              <button
+                onClick={() => setShowAddUser(false)}
+                className="text-gray-400 hover:text-gray-600"
               >
-                <option value="normal">مستخدم عادي</option>
-                <option value="admin">مدير</option>
-              </select>
+                <X className="h-6 w-6" />
+              </button>
             </div>
-            <div className="flex justify-end space-x-2 space-x-reverse mt-6">
-              <button
-                onClick={() => setShowAddUserForm(false)}
-                className="px-4 py-2 text-gray-600 border border-gray-300 rounded-md hover:bg-gray-50"
-              >
-                إلغاء
-              </button>
-              <button
-                onClick={handleAddUser}
-                className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
-              >
-                إضافة
-              </button>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">اسم المستخدم</label>
+                <input
+                  type="text"
+                  value={newUser.username}
+                  onChange={(e) => setNewUser({...newUser, username: e.target.value})}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  placeholder="أدخل اسم المستخدم"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">كلمة المرور</label>
+                <input
+                  type="password"
+                  value={newUser.password}
+                  onChange={(e) => setNewUser({...newUser, password: e.target.value})}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  placeholder="أدخل كلمة المرور"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">الدور</label>
+                <select
+                  value={newUser.role}
+                  onChange={(e) => setNewUser({...newUser, role: e.target.value as 'normal' | 'admin'})}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                >
+                  <option value="normal">مستخدم عادي</option>
+                  <option value="admin">مدير</option>
+                </select>
+              </div>
+              <div className="flex space-x-3 space-x-reverse">
+                <button
+                  onClick={handleAddUser}
+                  className="flex-1 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg"
+                >
+                  إضافة
+                </button>
+                <button
+                  onClick={() => setShowAddUser(false)}
+                  className="flex-1 bg-gray-300 hover:bg-gray-400 text-gray-700 px-4 py-2 rounded-lg"
+                >
+                  إلغاء
+                </button>
+              </div>
             </div>
           </div>
         </div>
       )}
 
-      {/* Add Payment Modal */}
-      {showAddPaymentForm && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+      {/* Edit User Modal */}
+      {editingUser && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-lg p-6 w-full max-w-md">
-            <h3 className="text-lg font-semibold mb-4">إضافة دفعة</h3>
-            <div className="space-y-4">
-              <input
-                type="number"
-                placeholder="المبلغ"
-                value={paymentForm.amount}
-                onChange={(e) => setPaymentForm({...paymentForm, amount: Math.floor(Number(e.target.value))})}
-                className="w-full border border-gray-300 rounded-md px-3 py-2"
-              />
-              <input
-                type="text"
-                placeholder="اسم الدافع"
-                value={paymentForm.paidBy}
-                onChange={(e) => setPaymentForm({...paymentForm, paidBy: e.target.value})}
-                className="w-full border border-gray-300 rounded-md px-3 py-2"
-              />
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-semibold text-gray-900">تعديل المستخدم</h3>
+              <button
+                onClick={() => setEditingUser(null)}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <X className="h-6 w-6" />
+              </button>
             </div>
-            <div className="flex justify-end space-x-2 space-x-reverse mt-6">
-              <button
-                onClick={() => setShowAddPaymentForm(false)}
-                className="px-4 py-2 text-gray-600 border border-gray-300 rounded-md hover:bg-gray-50"
-              >
-                إلغاء
-              </button>
-              <button
-                onClick={handleAddPayment}
-                className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700"
-              >
-                إضافة الدفعة
-              </button>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">اسم المستخدم</label>
+                <input
+                  type="text"
+                  value={editingUser.username}
+                  onChange={(e) => setEditingUser({...editingUser, username: e.target.value})}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">كلمة المرور الجديدة</label>
+                <input
+                  type="password"
+                  value={editingUser.password}
+                  onChange={(e) => setEditingUser({...editingUser, password: e.target.value})}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  placeholder="اتركها فارغة للاحتفاظ بكلمة المرور الحالية"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">الدور</label>
+                <select
+                  value={editingUser.role}
+                  onChange={(e) => setEditingUser({...editingUser, role: e.target.value as 'normal' | 'admin'})}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                >
+                  <option value="normal">مستخدم عادي</option>
+                  <option value="admin">مدير</option>
+                </select>
+              </div>
+              <div className="flex space-x-3 space-x-reverse">
+                <button
+                  onClick={handleEditUser}
+                  className="flex-1 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg"
+                >
+                  حفظ التغييرات
+                </button>
+                <button
+                  onClick={() => setEditingUser(null)}
+                  className="flex-1 bg-gray-300 hover:bg-gray-400 text-gray-700 px-4 py-2 rounded-lg"
+                >
+                  إلغاء
+                </button>
+              </div>
             </div>
           </div>
         </div>
       )}
 
-      {/* Add Expense Modal */}
-      {showAddExpenseForm && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-full max-w-md">
-            <h3 className="text-lg font-semibold mb-4">إضافة مصروف</h3>
-            <div className="space-y-4">
-              <input
-                type="number"
-                placeholder="المبلغ"
-                value={expenseForm.amount}
-                onChange={(e) => setExpenseForm({...expenseForm, amount: Math.floor(Number(e.target.value))})}
-                className="w-full border border-gray-300 rounded-md px-3 py-2"
-              />
-              <input
-                type="text"
-                placeholder="السبب"
-                value={expenseForm.reason}
-                onChange={(e) => setExpenseForm({...expenseForm, reason: e.target.value})}
-                className="w-full border border-gray-300 rounded-md px-3 py-2"
-              />
+      {/* Add Supply Modal */}
+      {showAddSupply && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-2xl max-h-[80vh] overflow-y-auto">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-semibold text-gray-900">إضافة مخزون</h3>
+              <button
+                onClick={() => setShowAddSupply(false)}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <X className="h-6 w-6" />
+              </button>
             </div>
-            <div className="flex justify-end space-x-2 space-x-reverse mt-6">
+            <div className="space-y-4">
+              <p className="text-sm text-gray-600">اختر الأصناف والكميات المراد إضافتها للمخزون:</p>
+              
+              <div className="space-y-3 max-h-64 overflow-y-auto">
+                {items.map(item => (
+                  <div key={item.id} className="flex items-center justify-between p-3 border border-gray-200 rounded-lg">
+                    <div className="flex items-center space-x-3 space-x-reverse">
+                      {item.image && (
+                        <img 
+                          src={item.image} 
+                          alt={item.name}
+                          className="h-10 w-10 object-cover rounded"
+                        />
+                      )}
+                      <div>
+                        <p className="font-medium text-gray-900">{item.name}</p>
+                        <p className="text-sm text-gray-600">متوفر حالياً: {item.currentAmount}</p>
+                        <p className="text-sm text-gray-600">سعر التكلفة: {item.costPrice} ج.م</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center space-x-2 space-x-reverse">
+                      <input
+                        type="number"
+                        min="0"
+                        value={supplyItems[item.id] || 0}
+                        onChange={(e) => setSupplyItems({
+                          ...supplyItems,
+                          [item.id]: Number(e.target.value)
+                        })}
+                        className="w-20 px-2 py-1 border border-gray-300 rounded text-center"
+                        placeholder="0"
+                      />
+                      <span className="text-sm text-gray-600">قطعة</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div className="border-t pt-4">
+                <div className="flex justify-between items-center mb-4">
+                  <span className="font-medium text-gray-900">إجمالي التكلفة:</span>
+                  <span className="font-bold text-blue-600">
+                    {Object.entries(supplyItems).reduce((total, [itemId, quantity]) => {
+                      const item = items.find(i => i.id === itemId);
+                      return total + (item ? item.costPrice * quantity : 0);
+                    }, 0)} ج.م
+                  </span>
+                </div>
+                
+                <div className="flex space-x-3 space-x-reverse">
+                  <button
+                    onClick={handleAddSupply}
+                    disabled={Object.values(supplyItems).every(qty => qty === 0)}
+                    className="flex-1 bg-green-600 hover:bg-green-700 disabled:bg-gray-400 text-white px-4 py-2 rounded-lg"
+                  >
+                    إضافة المخزون
+                  </button>
+                  <button
+                    onClick={() => setShowAddSupply(false)}
+                    className="flex-1 bg-gray-300 hover:bg-gray-400 text-gray-700 px-4 py-2 rounded-lg"
+                  >
+                    إلغاء
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Add Customer Modal */}
+      {showAddCustomer && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-md">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-semibold text-gray-900">إضافة عميل جديد</h3>
               <button
-                onClick={() => setShowAddExpenseForm(false)}
-                className="px-4 py-2 text-gray-600 border border-gray-300 rounded-md hover:bg-gray-50"
+                onClick={() => setShowAddCustomer(false)}
+                className="text-gray-400 hover:text-gray-600"
               >
-                إلغاء
+                <X className="h-6 w-6" />
               </button>
-              <button
-                onClick={handleAddExpense}
-                className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700"
-              >
-                إضافة المصروف
-              </button>
+            </div>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">اسم العميل</label>
+                <input
+                  type="text"
+                  value={newCustomer.name}
+                  onChange={(e) => setNewCustomer({...newCustomer, name: e.target.value})}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  placeholder="أدخل اسم العميل"
+                />
+              </div>
+              <div className="flex space-x-3 space-x-reverse">
+                <button
+                  onClick={handleAddCustomer}
+                  className="flex-1 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg"
+                >
+                  إضافة
+                </button>
+                <button
+                  onClick={() => setShowAddCustomer(false)}
+                  className="flex-1 bg-gray-300 hover:bg-gray-400 text-gray-700 px-4 py-2 rounded-lg"
+                >
+                  إلغاء
+                </button>
+              </div>
             </div>
           </div>
         </div>
       )}
 
       {/* Shift Details Modal */}
-      {showShiftDetails && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-full max-w-4xl max-h-[90vh] overflow-y-auto">
-            {(() => {
-              const shift = shifts.find(s => s.id === showShiftDetails);
-              if (!shift) return null;
-              
-              return (
-                <>
-                  <div className="flex justify-between items-center mb-6">
-                    <h3 className="text-xl font-semibold">تفاصيل الوردية: {shift.id}</h3>
-                    <button
-                      onClick={() => setShowShiftDetails(null)}
-                      className="text-gray-400 hover:text-gray-600"
-                    >
-                      <X className="h-6 w-6" />
-                    </button>
-                  </div>
-
-                  {/* Shift Summary */}
-                  <div className="bg-gray-50 rounded-lg p-4 mb-6">
-                    <h4 className="font-semibold mb-3">ملخص الوردية</h4>
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <p><strong>تاريخ البداية:</strong> {new Date(shift.startTime).toLocaleString('ar-EG')}</p>
-                        <p><strong>تاريخ النهاية:</strong> {shift.endTime ? new Date(shift.endTime).toLocaleString('ar-EG') : 'نشطة'}</p>
-                        <p><strong>المستخدم الذي فتح:</strong> {shift.username}</p>
+      {showShiftDetails && selectedShift && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-4xl max-h-[80vh] overflow-y-auto">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-semibold text-gray-900">تفاصيل الوردية {selectedShift.id}</h3>
+              <button
+                onClick={() => setShowShiftDetails(false)}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <X className="h-6 w-6" />
+              </button>
+            </div>
+            
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {/* Shift Info */}
+              <div className="space-y-4">
+                <div className="bg-gray-50 p-4 rounded-lg">
+                  <h4 className="font-medium text-gray-900 mb-3">معلومات الوردية</h4>
+                  <div className="space-y-2 text-sm">
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">المستخدم:</span>
+                      <span>{selectedShift.username}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">بداية الوردية:</span>
+                      <span>{new Date(selectedShift.startTime).toLocaleString('ar-EG')}</span>
+                    </div>
+                    {selectedShift.endTime && (
+                      <div className="flex justify-between">
+                        <span className="text-gray-600">نهاية الوردية:</span>
+                        <span>{new Date(selectedShift.endTime).toLocaleString('ar-EG')}</span>
                       </div>
-                      <div>
-                        <p><strong>إجمالي الصندوق:</strong> {shift.totalAmount} ج.م</p>
-                        <p><strong>عدد الأصناف المباعة:</strong> {shift.purchases.reduce((total, p) => total + p.quantity, 0)}</p>
-                        <p><strong>حالة التوازن:</strong> {shift.validationStatus === 'balanced' ? 'متوازنة' : 'بها فروق'}</p>
-                      </div>
+                    )}
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">إجمالي النقدية:</span>
+                      <span className="font-bold text-green-600">{selectedShift.totalAmount} ج.م</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">الحالة:</span>
+                      <span className={`font-medium ${
+                        selectedShift.status === 'active' ? 'text-green-600' : 
+                        selectedShift.validationStatus === 'balanced' ? 'text-blue-600' : 'text-red-600'
+                      }`}>
+                        {selectedShift.status === 'active' ? 'نشطة' : 
+                         selectedShift.validationStatus === 'balanced' ? 'متوازنة' : 'بها اختلاف'}
+                      </span>
                     </div>
                   </div>
+                </div>
 
-                  {/* Purchases */}
-                  {shift.purchases.length > 0 && (
-                    <div className="mb-6">
-                      <h4 className="font-semibold mb-3">المبيعات</h4>
-                      <div className="overflow-x-auto">
-                        <table className="min-w-full divide-y divide-gray-200">
-                          <thead className="bg-gray-50">
-                            <tr>
-                              <th className="px-4 py-2 text-right text-xs font-medium text-gray-500">الصنف</th>
-                              <th className="px-4 py-2 text-right text-xs font-medium text-gray-500">الكمية</th>
-                              <th className="px-4 py-2 text-right text-xs font-medium text-gray-500">السعر</th>
-                              <th className="px-4 py-2 text-right text-xs font-medium text-gray-500">الإجمالي</th>
-                            </tr>
-                          </thead>
-                          <tbody className="bg-white divide-y divide-gray-200">
-                            {shift.purchases.map((purchase, index) => (
-                              <tr key={index}>
-                                <td className="px-4 py-2 text-sm">{purchase.name}</td>
-                                <td className="px-4 py-2 text-sm">{purchase.quantity}</td>
-                                <td className="px-4 py-2 text-sm">{purchase.price} ج.م</td>
-                                <td className="px-4 py-2 text-sm">{purchase.price * purchase.quantity} ج.م</td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
+                {/* Discrepancies */}
+                {selectedShift.discrepancies && selectedShift.discrepancies.length > 0 && (
+                  <div className="bg-red-50 border border-red-200 p-4 rounded-lg">
+                    <h4 className="font-medium text-red-900 mb-2">الاختلافات</h4>
+                    <ul className="text-sm text-red-700 space-y-1">
+                      {selectedShift.discrepancies.map((discrepancy, index) => (
+                        <li key={index}>• {discrepancy}</li>
+                      ))}
+                    </ul>
+                    {selectedShift.closeReason && (
+                      <div className="mt-2 pt-2 border-t border-red-200">
+                        <p className="text-sm text-red-700">
+                          <strong>ملاحظة الإغلاق:</strong> {selectedShift.closeReason}
+                        </p>
                       </div>
-                    </div>
-                  )}
+                    )}
+                  </div>
+                )}
+              </div>
 
-                  {/* Expenses */}
-                  {shift.expenses.length > 0 && (
-                    <div className="mb-6">
-                      <h4 className="font-semibold mb-3">المصروفات</h4>
-                      <div className="overflow-x-auto">
-                        <table className="min-w-full divide-y divide-gray-200">
-                          <thead className="bg-gray-50">
-                            <tr>
-                              <th className="px-4 py-2 text-right text-xs font-medium text-gray-500">المبلغ</th>
-                              <th className="px-4 py-2 text-right text-xs font-medium text-gray-500">السبب</th>
-                              <th className="px-4 py-2 text-right text-xs font-medium text-gray-500">الوقت</th>
-                            </tr>
-                          </thead>
-                          <tbody className="bg-white divide-y divide-gray-200">
-                            {shift.expenses.map((expense) => (
-                              <tr key={expense.id}>
-                                <td className="px-4 py-2 text-sm">{expense.amount} ج.م</td>
-                                <td className="px-4 py-2 text-sm">{expense.reason}</td>
-                                <td className="px-4 py-2 text-sm">{new Date(expense.timestamp).toLocaleString('ar-EG')}</td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
+              {/* Purchases and Expenses */}
+              <div className="space-y-4">
+                {/* Purchases */}
+                <div className="bg-gray-50 p-4 rounded-lg">
+                  <h4 className="font-medium text-gray-900 mb-3">المبيعات ({selectedShift.purchases.length})</h4>
+                  <div className="space-y-2 max-h-48 overflow-y-auto">
+                    {selectedShift.purchases.map((purchase, index) => (
+                      <div key={index} className="flex justify-between items-center text-sm">
+                        <div>
+                          <span className="font-medium">{purchase.name}</span>
+                          <span className="text-gray-600 mr-2">x{purchase.quantity}</span>
+                        </div>
+                        <span className="font-medium text-green-600">
+                          {purchase.price * purchase.quantity} ج.م
+                        </span>
                       </div>
-                    </div>
-                  )}
+                    ))}
+                    {selectedShift.purchases.length === 0 && (
+                      <p className="text-gray-500 text-center py-4">لا توجد مبيعات</p>
+                    )}
+                  </div>
+                </div>
 
-                  {/* Discrepancies */}
-                  {shift.discrepancies && shift.discrepancies.length > 0 && (
-                    <div className="mb-6">
-                      <h4 className="font-semibold mb-3 text-red-600">الفروقات</h4>
-                      <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-                        {shift.discrepancies.map((discrepancy, index) => (
-                          <p key={index} className="text-red-700">• {discrepancy}</p>
-                        ))}
-                        {shift.closeReason && (
-                          <div className="mt-3 pt-3 border-t border-red-200">
-                            <p className="text-red-700"><strong>ملاحظة الإغلاق:</strong> {shift.closeReason}</p>
+                {/* Expenses */}
+                <div className="bg-gray-50 p-4 rounded-lg">
+                  <h4 className="font-medium text-gray-900 mb-3">
+                    المصروفات ({selectedShift.expenses.length}) - 
+                    إجمالي: {selectedShift.expenses.reduce((total, e) => total + e.amount, 0)} ج.م
+                  </h4>
+                  <div className="space-y-2 max-h-48 overflow-y-auto">
+                    {selectedShift.expenses.map((expense) => (
+                      <div key={expense.id} className="flex justify-between items-center text-sm">
+                        <div>
+                          <span className="font-medium">{expense.reason}</span>
+                          <div className="text-gray-600">
+                            {new Date(expense.timestamp).toLocaleString('ar-EG')}
                           </div>
-                        )}
+                        </div>
+                        <span className="font-medium text-red-600">{expense.amount} ج.م</span>
                       </div>
-                    </div>
-                  )}
-                </>
-              );
-            })()}
+                    ))}
+                    {selectedShift.expenses.length === 0 && (
+                      <p className="text-gray-500 text-center py-4">لا توجد مصروفات</p>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       )}
