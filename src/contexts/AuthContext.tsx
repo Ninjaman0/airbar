@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { User } from '../types';
-import { db } from '../services/database';
+import { db_service } from '../services/database';
+import { realtimeService } from '../services/realtime';
 
 interface AuthContextType {
   user: User | null;
@@ -23,7 +24,7 @@ interface AuthProviderProps {
   children: ReactNode;
 }
 
-// Fixed user credentials in code
+// Fixed user credentials in code (for initial setup)
 const FIXED_USERS: User[] = [
   {
     id: 'admin-1',
@@ -32,7 +33,7 @@ const FIXED_USERS: User[] = [
     role: 'admin',
     createdAt: new Date()
   },
-    {
+  {
     id: 'admin-2',
     username: 'hesham',
     password: 'heshampop121',
@@ -45,13 +46,15 @@ const FIXED_USERS: User[] = [
     password: 'boda121',
     role: 'normal',
     createdAt: new Date()
-  },  {
+  },
+  {
     id: 'user-2',
     username: 'hesham',
     password: 'heshampop123',
     role: 'normal',
     createdAt: new Date()
-  },  {
+  },
+  {
     id: 'user-3',
     username: 'cover',
     password: 'cover123',
@@ -68,7 +71,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     const initAuth = async () => {
       try {
         console.log('Initializing authentication...');
-        await db.init();
+        await db_service.init();
         
         // Check for stored user session
         const storedUser = localStorage.getItem('currentUser');
@@ -77,15 +80,26 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
             const parsedUser = JSON.parse(storedUser);
             console.log('Found stored user:', parsedUser.username);
             
-            // Verify user exists in fixed users list
-            const fixedUser = FIXED_USERS.find(u => 
-              u.username === parsedUser.username && 
-              u.id === parsedUser.id && 
-              u.password === parsedUser.password
-            );
+            // Verify user exists in database or fixed users list
+            let dbUser = await db_service.getUserByUsername(parsedUser.username);
             
-            if (fixedUser) {
+            if (!dbUser) {
+              // Check fixed users and create in database if needed
+              const fixedUser = FIXED_USERS.find(u => 
+                u.username === parsedUser.username && 
+                u.id === parsedUser.id && 
+                u.password === parsedUser.password
+              );
+              
+              if (fixedUser) {
+                await db_service.createUser(fixedUser);
+                dbUser = fixedUser;
+              }
+            }
+            
+            if (dbUser && dbUser.password === parsedUser.password) {
               setUser(parsedUser);
+              realtimeService.connect(parsedUser);
               console.log('User session restored');
             } else {
               console.log('Stored user session invalid, clearing...');
@@ -109,11 +123,16 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     };
 
     initAuth();
+
+    // Cleanup on unmount
+    return () => {
+      realtimeService.disconnect();
+    };
   }, []);
 
   const initializeDefaultItems = async () => {
     try {
-      const storeItems = await db.getItemsBySection('store');
+      const storeItems = await db_service.getItemsBySection('store');
       if (storeItems.length === 0) {
         const defaultStoreItems = [
           {
@@ -149,12 +168,12 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         ];
 
         for (const item of defaultStoreItems) {
-          await db.saveItem(item);
+          await db_service.saveItem(item);
         }
         console.log('Default store items created');
       }
 
-      const supplementItems = await db.getItemsBySection('supplement');
+      const supplementItems = await db_service.getItemsBySection('supplement');
       if (supplementItems.length === 0) {
         const defaultSupplementItems = [
           {
@@ -180,7 +199,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         ];
 
         for (const item of defaultSupplementItems) {
-          await db.saveItem(item);
+          await db_service.saveItem(item);
         }
         console.log('Default supplement items created');
       }
@@ -198,27 +217,38 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     try {
       console.log('Attempting login for user:', username);
       
-      // Check against fixed users list
-      const fixedUser = FIXED_USERS.find(u => 
-        u.username === username.trim() && u.password === password
-      );
+      // Check database first
+      let dbUser = await db_service.getUserByUsername(username.trim());
       
-      if (!fixedUser) {
+      if (!dbUser) {
+        // Check against fixed users list and create in database
+        const fixedUser = FIXED_USERS.find(u => 
+          u.username === username.trim() && u.password === password
+        );
+        
+        if (fixedUser) {
+          await db_service.createUser(fixedUser);
+          dbUser = fixedUser;
+        }
+      }
+      
+      if (!dbUser || dbUser.password !== password) {
         console.log('Login failed: invalid credentials');
         return false;
       }
       
       // Create a clean user object for storage
       const userForStorage: User = {
-        id: fixedUser.id,
-        username: fixedUser.username,
-        password: fixedUser.password,
-        role: fixedUser.role,
-        createdAt: fixedUser.createdAt
+        id: dbUser.id,
+        username: dbUser.username,
+        password: dbUser.password,
+        role: dbUser.role,
+        createdAt: dbUser.createdAt
       };
       
       setUser(userForStorage);
       localStorage.setItem('currentUser', JSON.stringify(userForStorage));
+      realtimeService.connect(userForStorage);
       console.log('Login successful for user:', username);
       return true;
     } catch (error) {
@@ -229,6 +259,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
   const logout = () => {
     console.log('User logged out');
+    realtimeService.disconnect();
     setUser(null);
     localStorage.removeItem('currentUser');
   };

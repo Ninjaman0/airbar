@@ -1,6 +1,7 @@
 import React from 'react';
 import { LogOut, Dumbbell, Store, Package } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
+import RealtimeStatus from './RealtimeStatus';
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -21,6 +22,7 @@ const Layout: React.FC<LayoutProps> = ({ children, currentSection, onSectionChan
                 <Dumbbell className="h-6 w-6 text-blue-600" />
               </div>
               <h1 className="text-xl font-bold text-gray-900">AIR BAR</h1>
+              <RealtimeStatus />
             </div>
 
             <div className="flex items-center space-x-4">
