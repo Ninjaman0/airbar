@@ -1137,7 +1137,7 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
                   </p>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">مبلغ الدفع (EGP)</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">مبلغ الدفع (جنيه)</label>
                   <input
                     type="number"
                     value={partialPaymentAmount}
