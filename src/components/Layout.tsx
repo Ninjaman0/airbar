@@ -45,7 +45,7 @@ const Layout: React.FC<LayoutProps> = ({ children, currentSection, onSectionChan
                   }`}
                 >
                   <Package className="h-4 w-4" />
-                  <span>Supplements</span>
+                  <span>م</span>
                 </button>
               </div>
 
