@@ -934,7 +934,7 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
                             <button
                               onClick={() => removeExpenseFromShift(expense.id)}
                               className="text-red-600 hover:text-red-900 flex items-center"
-                              title="Remove expense and return money to cashier"
+                              title="مسح هذه المصاريف و اعادتها للكاشير"
                             >
                               <Trash2 className="h-4 w-4 mr-1" />
                               Remove
