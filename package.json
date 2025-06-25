@@ -11,14 +11,17 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:push": "drizzle-kit push",
-    "db:studio": "drizzle-kit studio"
+    "db:studio": "drizzle-kit studio",
+    "ws-server": "node websocket-server.js"
   },
   "dependencies": {
     "lucide-react": "^0.344.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "drizzle-orm": "^0.33.0",
-    "@neondatabase/serverless": "^0.9.0"
+    "@neondatabase/serverless": "^0.9.0",
+    "jspdf": "^2.5.1",
+    "jspdf-autotable": "^3.8.2"
   },
   "devDependencies": {
     "@eslint/js": "^9.9.1",
