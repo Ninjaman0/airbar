@@ -1,10 +1,11 @@
 import jsPDF from 'jspdf';
-import 'jspdf-autotable';
+import autoTable from 'jspdf-autotable';
 import { Shift, Item } from '../types';
 
+// Extend jsPDF type to include autoTable
 declare module 'jspdf' {
   interface jsPDF {
-    autoTable: (options: any) => jsPDF;
+    autoTable: typeof autoTable;
   }
 }
 
@@ -21,7 +22,7 @@ export const generateShiftsPDF = (shifts: Shift[], section: 'store' | 'supplemen
   
   // Table data
   const tableData = shifts.map(shift => [
-    shift.id,
+    shift.id.substring(0, 8),
     new Date(shift.startTime).toLocaleDateString(),
     shift.endTime ? new Date(shift.endTime).toLocaleDateString() : 'Active',
     `${shift.totalAmount} EGP`,
@@ -32,7 +33,7 @@ export const generateShiftsPDF = (shifts: Shift[], section: 'store' | 'supplemen
     shift.status === 'closed' ? shift.username : '-'
   ]);
   
-  doc.autoTable({
+  autoTable(doc, {
     head: [['Shift ID', 'Started', 'Ended', 'Total Cash', 'Items Sold', 'Expenses', 'Status', 'User Opened', 'User Closed']],
     body: tableData,
     startY: 40,
@@ -46,7 +47,7 @@ export const generateShiftsPDF = (shifts: Shift[], section: 'store' | 'supplemen
   shifts.forEach(shift => {
     if (shift.discrepancies && shift.discrepancies.length > 0) {
       doc.setFontSize(10);
-      doc.text(`Shift ${shift.id} Discrepancies:`, 20, yPosition);
+      doc.text(`Shift ${shift.id.substring(0, 8)} Discrepancies:`, 20, yPosition);
       yPosition += 10;
       
       shift.discrepancies.forEach(discrepancy => {
@@ -122,12 +123,12 @@ export const generateMonthlySummaryPDF = (
   const itemTableData = Object.values(itemTotals).map(item => [
     item.name,
     item.totalSold.toString(),
-    `${item.totalCost} EGP`,
-    `${item.totalProfit} EGP`,
-    `${item.totalRevenue} EGP`
+    `${item.totalCost.toFixed(2)} EGP`,
+    `${item.totalProfit.toFixed(2)} EGP`,
+    `${item.totalRevenue.toFixed(2)} EGP`
   ]);
   
-  doc.autoTable({
+  autoTable(doc, {
     head: [['Item Name', 'Total Sold', 'Total Cost', 'Total Profit', 'Total Revenue']],
     body: itemTableData,
     startY: 60,
@@ -141,16 +142,16 @@ export const generateMonthlySummaryPDF = (
   doc.text('Shifts Summary', 20, shiftsStartY);
   
   const shiftsTableData = shifts.map(shift => [
-    shift.id,
+    shift.id.substring(0, 8),
     new Date(shift.startTime).toLocaleDateString(),
     shift.endTime ? new Date(shift.endTime).toLocaleDateString() : 'Active',
     shift.username,
     shift.status === 'closed' ? shift.username : '-',
-    `${shift.totalAmount} EGP`,
-    `${shift.expenses.reduce((total, e) => total + e.amount, 0)} EGP`
+    `${shift.totalAmount.toFixed(2)} EGP`,
+    `${shift.expenses.reduce((total, e) => total + e.amount, 0).toFixed(2)} EGP`
   ]);
   
-  doc.autoTable({
+  autoTable(doc, {
     head: [['Shift ID', 'Started', 'Ended', 'User Opened', 'User Closed', 'Total Cash', 'Expenses']],
     body: shiftsTableData,
     startY: shiftsStartY + 10,
