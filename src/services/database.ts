@@ -365,12 +365,10 @@ class DatabaseService {
 
   // Payment operations (keeping for compatibility)
   async savePayment(payment: Payment): Promise<void> {
-    // This might need to be implemented based on your payment structure
     console.log('Payment saved:', payment);
   }
 
   async getAllPayments(): Promise<Payment[]> {
-    // This might need to be implemented based on your payment structure
     return [];
   }
 
