@@ -15,20 +15,21 @@ class RealtimeService {
   private ws: WebSocket | null = null;
   private callbacks: Set<RealtimeCallback> = new Set();
   private reconnectAttempts = 0;
-  private maxReconnectAttempts = 5;
-  private reconnectDelay = 1000;
+  private maxReconnectAttempts = 3;
+  private reconnectDelay = 2000;
   private isConnecting = false;
   private user: User | null = null;
   private supabaseSubscriptions: any[] = [];
+  private wsEnabled = false;
 
   connect(user: User) {
     this.user = user;
     console.log('Connecting real-time services for user:', user.username);
     
-    // Setup Supabase real-time subscriptions
+    // Setup Supabase real-time subscriptions (primary real-time method)
     this.setupSupabaseRealtime();
     
-    // Also connect to WebSocket for additional real-time features
+    // Try to connect to WebSocket for additional features (optional)
     this.connectWebSocket();
   }
 
@@ -110,16 +111,34 @@ class RealtimeService {
       return;
     }
 
+    // Don't attempt WebSocket connection if we've already determined it's not available
+    if (this.reconnectAttempts >= this.maxReconnectAttempts) {
+      console.log('WebSocket server not available, continuing with Supabase real-time only');
+      return;
+    }
+
     this.isConnecting = true;
 
     try {
       const wsUrl = import.meta.env.VITE_WS_URL || 'ws://localhost:3001';
+      console.log('Attempting WebSocket connection to:', wsUrl);
+      
       this.ws = new WebSocket(wsUrl);
 
+      // Set a timeout for the connection attempt
+      const connectionTimeout = setTimeout(() => {
+        if (this.ws && this.ws.readyState === WebSocket.CONNECTING) {
+          console.log('WebSocket connection timeout, closing...');
+          this.ws.close();
+        }
+      }, 5000);
+
       this.ws.onopen = () => {
-        console.log('WebSocket connected');
+        console.log('WebSocket connected successfully');
+        clearTimeout(connectionTimeout);
         this.isConnecting = false;
         this.reconnectAttempts = 0;
+        this.wsEnabled = true;
         
         // Send user info
         this.send({
@@ -145,34 +164,43 @@ class RealtimeService {
         }
       };
 
-      this.ws.onclose = () => {
-        console.log('WebSocket disconnected');
+      this.ws.onclose = (event) => {
+        console.log('WebSocket disconnected:', event.code, event.reason);
+        clearTimeout(connectionTimeout);
         this.isConnecting = false;
         this.ws = null;
-        this.attemptReconnect();
+        this.wsEnabled = false;
+        
+        // Only attempt reconnect if it was a clean close or network error
+        if (event.code !== 1000 && this.reconnectAttempts < this.maxReconnectAttempts) {
+          this.attemptReconnect();
+        }
       };
 
       this.ws.onerror = (error) => {
-        console.error('WebSocket error:', error);
+        console.log('WebSocket connection failed - this is optional, continuing with Supabase real-time');
+        clearTimeout(connectionTimeout);
         this.isConnecting = false;
+        this.wsEnabled = false;
       };
     } catch (error) {
-      console.error('Failed to create WebSocket connection:', error);
+      console.log('Failed to create WebSocket connection - continuing with Supabase real-time only');
       this.isConnecting = false;
+      this.wsEnabled = false;
       this.attemptReconnect();
     }
   }
 
   private attemptReconnect() {
     if (this.reconnectAttempts >= this.maxReconnectAttempts || !this.user) {
-      console.log('Max reconnection attempts reached or no user');
+      console.log('WebSocket server not available, using Supabase real-time only');
       return;
     }
 
     this.reconnectAttempts++;
-    const delay = this.reconnectDelay * Math.pow(2, this.reconnectAttempts - 1);
+    const delay = this.reconnectDelay * this.reconnectAttempts;
     
-    console.log(`Attempting to reconnect WebSocket in ${delay}ms (attempt ${this.reconnectAttempts})`);
+    console.log(`Attempting to reconnect WebSocket in ${delay}ms (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})`);
     
     setTimeout(() => {
       if (this.user) {
@@ -194,8 +222,8 @@ class RealtimeService {
     });
     this.supabaseSubscriptions = [];
 
-    // Close WebSocket connection
-    if (this.ws) {
+    // Close WebSocket connection if available
+    if (this.ws && this.wsEnabled) {
       try {
         this.send({
           type: 'USER_LEFT',
@@ -204,7 +232,7 @@ class RealtimeService {
           userId: this.user?.id
         });
         
-        this.ws.close();
+        this.ws.close(1000, 'User disconnected');
       } catch (error) {
         console.error('Error closing WebSocket:', error);
       }
@@ -213,6 +241,7 @@ class RealtimeService {
     
     this.user = null;
     this.callbacks.clear();
+    this.wsEnabled = false;
     console.log('Real-time connections disconnected');
   }
 
@@ -222,7 +251,7 @@ class RealtimeService {
   }
 
   send(event: RealtimeEvent) {
-    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+    if (this.ws && this.ws.readyState === WebSocket.OPEN && this.wsEnabled) {
       try {
         this.ws.send(JSON.stringify(event));
       } catch (error) {
@@ -240,7 +269,7 @@ class RealtimeService {
       section
     };
 
-    // Send via WebSocket
+    // Send via WebSocket if available
     this.send(event);
     
     // Also trigger local callbacks for immediate UI updates
@@ -254,9 +283,16 @@ class RealtimeService {
   }
 
   isConnected(): boolean {
-    const wsConnected = this.ws !== null && this.ws.readyState === WebSocket.OPEN;
+    const wsConnected = this.ws !== null && this.ws.readyState === WebSocket.OPEN && this.wsEnabled;
     const supabaseConnected = this.supabaseSubscriptions.length > 0;
     return wsConnected || supabaseConnected;
+  }
+
+  getConnectionStatus(): { supabase: boolean; websocket: boolean } {
+    return {
+      supabase: this.supabaseSubscriptions.length > 0,
+      websocket: this.ws !== null && this.ws.readyState === WebSocket.OPEN && this.wsEnabled
+    };
   }
 }
 

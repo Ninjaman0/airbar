@@ -9,7 +9,7 @@ A modern inventory management system for gym bars and supplement stores with rea
 - **User Management**: Admin and normal user roles
 - **Shift Management**: Track sales, expenses, and inventory per shift
 - **Customer Management**: Handle customer purchases and debt tracking
-- **Live Updates**: Supabase real-time + WebSocket-based real-time updates
+- **Live Updates**: Supabase real-time + optional WebSocket-based real-time updates
 - **Cloud Database**: Powered by Supabase PostgreSQL
 
 ## Setup
@@ -46,15 +46,17 @@ VITE_WS_URL=ws://localhost:3001
 npm install
 ```
 
-2. Start the WebSocket server (for additional real-time features):
+2. Start the development server:
+```bash
+npm run dev
+```
+
+3. **Optional**: Start the WebSocket server for additional real-time features:
 ```bash
 npm run ws-server
 ```
 
-3. Start the development server:
-```bash
-npm run dev
-```
+**Note**: The WebSocket server is optional. The application will work perfectly with just Supabase real-time if the WebSocket server is not running.
 
 ## Default Users
 
@@ -71,7 +73,8 @@ The system comes with pre-configured users:
 
 ## Real-time Features
 
-- **Supabase Real-time**: Database changes are reflected instantly across all connected users
+- **Supabase Real-time**: Database changes are reflected instantly across all connected users (primary method)
+- **WebSocket Server**: Optional additional real-time features for enhanced user experience
 - **Live Inventory Updates**: Stock changes are reflected instantly across all connected users
 - **Shift Synchronization**: Active shifts and sales are updated in real-time
 - **Customer Management**: Customer purchases and payments sync immediately
@@ -108,8 +111,21 @@ Popular deployment options:
 ## Real-time Architecture
 
 The application uses a dual real-time approach:
-1. **Supabase Real-time**: For database changes and core functionality
-2. **WebSocket Server**: For additional real-time features and user presence
+1. **Supabase Real-time**: For database changes and core functionality (required)
+2. **WebSocket Server**: For additional real-time features and user presence (optional)
+
+The application will function perfectly with just Supabase real-time. The WebSocket server provides enhanced features but is not required for basic operation.
+
+## Troubleshooting
+
+### WebSocket Connection Issues
+
+If you see WebSocket connection errors in the browser console, this is normal if you haven't started the WebSocket server. The application will continue to work using Supabase real-time.
+
+To enable the optional WebSocket features:
+1. Run `npm run ws-server` in a separate terminal
+2. Ensure the `VITE_WS_URL` environment variable is correctly set
+3. Refresh the application
 
 ## Contributing
 
