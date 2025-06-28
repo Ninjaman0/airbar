@@ -15,12 +15,13 @@ class RealtimeService {
   private ws: WebSocket | null = null;
   private callbacks: Set<RealtimeCallback> = new Set();
   private reconnectAttempts = 0;
-  private maxReconnectAttempts = 3;
-  private reconnectDelay = 2000;
+  private maxReconnectAttempts = 2;
+  private reconnectDelay = 3000;
   private isConnecting = false;
   private user: User | null = null;
   private supabaseSubscriptions: any[] = [];
   private wsEnabled = false;
+  private wsDisabled = false;
 
   connect(user: User) {
     this.user = user;
@@ -29,8 +30,13 @@ class RealtimeService {
     // Setup Supabase real-time subscriptions (primary real-time method)
     this.setupSupabaseRealtime();
     
-    // Try to connect to WebSocket for additional features (optional)
-    this.connectWebSocket();
+    // Only try WebSocket if we have a valid URL and haven't disabled it
+    const wsUrl = import.meta.env.VITE_WS_URL;
+    if (wsUrl && !this.wsDisabled) {
+      this.connectWebSocket();
+    } else {
+      console.log('WebSocket not configured or disabled, using Supabase real-time only');
+    }
   }
 
   private setupSupabaseRealtime() {
@@ -107,31 +113,39 @@ class RealtimeService {
   }
 
   private connectWebSocket() {
-    if (this.isConnecting || (this.ws && this.ws.readyState === WebSocket.OPEN)) {
+    if (this.isConnecting || (this.ws && this.ws.readyState === WebSocket.OPEN) || this.wsDisabled) {
       return;
     }
 
     // Don't attempt WebSocket connection if we've already determined it's not available
     if (this.reconnectAttempts >= this.maxReconnectAttempts) {
-      console.log('WebSocket server not available, continuing with Supabase real-time only');
+      console.log('WebSocket server not available, disabling WebSocket and continuing with Supabase real-time only');
+      this.wsDisabled = true;
       return;
     }
 
     this.isConnecting = true;
 
     try {
-      const wsUrl = import.meta.env.VITE_WS_URL || 'ws://localhost:3001';
+      const wsUrl = import.meta.env.VITE_WS_URL;
+      if (!wsUrl) {
+        console.log('WebSocket URL not configured, using Supabase real-time only');
+        this.wsDisabled = true;
+        this.isConnecting = false;
+        return;
+      }
+
       console.log('Attempting WebSocket connection to:', wsUrl);
       
       this.ws = new WebSocket(wsUrl);
 
-      // Set a timeout for the connection attempt
+      // Set a shorter timeout for the connection attempt
       const connectionTimeout = setTimeout(() => {
         if (this.ws && this.ws.readyState === WebSocket.CONNECTING) {
           console.log('WebSocket connection timeout, closing...');
           this.ws.close();
         }
-      }, 5000);
+      }, 3000);
 
       this.ws.onopen = () => {
         console.log('WebSocket connected successfully');
@@ -171,9 +185,12 @@ class RealtimeService {
         this.ws = null;
         this.wsEnabled = false;
         
-        // Only attempt reconnect if it was a clean close or network error
+        // Only attempt reconnect if it was a clean close or network error and we haven't exceeded attempts
         if (event.code !== 1000 && this.reconnectAttempts < this.maxReconnectAttempts) {
           this.attemptReconnect();
+        } else if (this.reconnectAttempts >= this.maxReconnectAttempts) {
+          console.log('Max WebSocket reconnection attempts reached, disabling WebSocket');
+          this.wsDisabled = true;
         }
       };
 
@@ -182,28 +199,40 @@ class RealtimeService {
         clearTimeout(connectionTimeout);
         this.isConnecting = false;
         this.wsEnabled = false;
+        this.reconnectAttempts++;
+        
+        if (this.reconnectAttempts >= this.maxReconnectAttempts) {
+          this.wsDisabled = true;
+        }
       };
     } catch (error) {
       console.log('Failed to create WebSocket connection - continuing with Supabase real-time only');
       this.isConnecting = false;
       this.wsEnabled = false;
-      this.attemptReconnect();
+      this.reconnectAttempts++;
+      
+      if (this.reconnectAttempts >= this.maxReconnectAttempts) {
+        this.wsDisabled = true;
+      } else {
+        this.attemptReconnect();
+      }
     }
   }
 
   private attemptReconnect() {
-    if (this.reconnectAttempts >= this.maxReconnectAttempts || !this.user) {
+    if (this.reconnectAttempts >= this.maxReconnectAttempts || !this.user || this.wsDisabled) {
       console.log('WebSocket server not available, using Supabase real-time only');
+      this.wsDisabled = true;
       return;
     }
 
     this.reconnectAttempts++;
-    const delay = this.reconnectDelay * this.reconnectAttempts;
+    const delay = this.reconnectDelay;
     
     console.log(`Attempting to reconnect WebSocket in ${delay}ms (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})`);
     
     setTimeout(() => {
-      if (this.user) {
+      if (this.user && !this.wsDisabled) {
         this.connectWebSocket();
       }
     }, delay);
@@ -242,6 +271,8 @@ class RealtimeService {
     this.user = null;
     this.callbacks.clear();
     this.wsEnabled = false;
+    this.wsDisabled = false;
+    this.reconnectAttempts = 0;
     console.log('Real-time connections disconnected');
   }
 
