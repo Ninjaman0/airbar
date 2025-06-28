@@ -36,7 +36,7 @@ const FIXED_USERS: User[] = [
   },
   {
     id: 'admin-2',
-    username: 'hesham',
+    username: 'heshamadmin',
     password: 'heshampop121',
     role: 'admin',
     createdAt: new Date()
@@ -50,7 +50,7 @@ const FIXED_USERS: User[] = [
   },
   {
     id: 'user-2',
-    username: 'hesham',
+    username: 'heshamuser',
     password: 'heshampop123',
     role: 'normal',
     createdAt: new Date()
