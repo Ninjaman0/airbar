@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Package, Users, DollarSign, Clock, AlertTriangle, CheckCircle, X } from 'lucide-react';
+import { Plus, Package, Users, DollarSign, Clock, AlertTriangle, CheckCircle, X, Edit, Trash2 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { db_service } from '../services/database';
 import { useRealtime } from '../hooks/useRealtime';
@@ -23,6 +23,8 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
   const [showExternalMoneyModal, setShowExternalMoneyModal] = useState(false);
   const [showCloseShiftModal, setShowCloseShiftModal] = useState(false);
   const [showNewCustomerModal, setShowNewCustomerModal] = useState(false);
+  const [showEditExpenseModal, setShowEditExpenseModal] = useState(false);
+  const [editingExpense, setEditingExpense] = useState<Expense | null>(null);
   const [newCustomerName, setNewCustomerName] = useState('');
   const [expenseAmount, setExpenseAmount] = useState('');
   const [expenseReason, setExpenseReason] = useState('');
@@ -72,7 +74,7 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
       setFinalInventory(inventoryMap);
     } catch (error) {
       console.error('Error loading data:', error);
-      setError('Failed to load data');
+      setError('فشل في تحميل البيانات');
     }
   };
 
@@ -81,14 +83,8 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
     if (event.section === section || !event.section) {
       switch (event.type) {
         case 'ITEM_UPDATED':
-          loadData();
-          break;
         case 'SHIFT_UPDATED':
-          loadData();
-          break;
         case 'CUSTOMER_UPDATED':
-          loadData();
-          break;
         case 'EXPENSE_ADDED':
         case 'EXTERNAL_MONEY_UPDATED':
           loadData();
@@ -119,7 +115,7 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
         externalMoney: startingCash > 0 ? [{
           id: uuidv4(),
           amount: startingCash,
-          reason: 'Carried over from previous shift',
+          reason: 'مبلغ محول من الوردية السابقة',
           shiftId: '',
           section,
           timestamp: new Date(),
@@ -146,7 +142,7 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
       setError('');
     } catch (error) {
       console.error('Error starting shift:', error);
-      setError('Failed to start shift');
+      setError('فشل في بدء الوردية');
     } finally {
       setIsLoading(false);
     }
@@ -154,14 +150,14 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
 
   const addToCart = (item: Item) => {
     if (item.currentAmount <= 0) {
-      setError('Item is out of stock');
+      setError('المنتج غير متوفر في المخزون');
       return;
     }
 
     const existingItem = cart.find(cartItem => cartItem.itemId === item.id);
     if (existingItem) {
       if (existingItem.quantity >= item.currentAmount) {
-        setError('Cannot add more than available stock');
+        setError('لا يمكن إضافة أكثر من الكمية المتوفرة');
         return;
       }
       setCart(cart.map(cartItem =>
@@ -194,7 +190,7 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
     }
 
     if (quantity > item.currentAmount) {
-      setError('Cannot exceed available stock');
+      setError('لا يمكن تجاوز الكمية المتوفرة');
       return;
     }
 
@@ -213,7 +209,7 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
       setIsLoading(true);
 
       if (isCustomerPurchase && !selectedCustomer) {
-        setError('Please select a customer');
+        setError('يرجى اختيار عميل');
         return;
       }
 
@@ -263,7 +259,7 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
       await loadData();
     } catch (error) {
       console.error('Error processing sale:', error);
-      setError('Failed to process sale');
+      setError('فشل في معالجة البيع');
     } finally {
       setIsLoading(false);
     }
@@ -290,7 +286,7 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
       await loadData();
     } catch (error) {
       console.error('Error marking as paid:', error);
-      setError('Failed to mark as paid');
+      setError('فشل في تحديد كمدفوع');
     } finally {
       setIsLoading(false);
     }
@@ -301,7 +297,7 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
 
     const amount = parseFloat(expenseAmount);
     if (amount > currentCash) {
-      setError('Expense cannot exceed current cash amount');
+      setError('لا يمكن أن تتجاوز المصروفات المبلغ الموجود في الصندوق');
       return;
     }
 
@@ -320,14 +316,6 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
 
       await db_service.saveExpense(expense);
 
-      const updatedShift = {
-        ...activeShift,
-        expenses: [...activeShift.expenses, expense],
-        totalAmount: activeShift.totalAmount - amount
-      };
-
-      await db_service.saveShift(updatedShift);
-
       setExpenseAmount('');
       setExpenseReason('');
       setShowExpenseModal(false);
@@ -335,10 +323,69 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
       await loadData();
     } catch (error) {
       console.error('Error adding expense:', error);
-      setError('Failed to add expense');
+      setError('فشل في إضافة المصروف');
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const editExpense = async () => {
+    if (!activeShift || !editingExpense || !expenseAmount || !expenseReason) return;
+
+    const amount = parseFloat(expenseAmount);
+    const currentCashWithoutExpense = currentCash + editingExpense.amount;
+    
+    if (amount > currentCashWithoutExpense) {
+      setError('لا يمكن أن تتجاوز المصروفات المبلغ الموجود في الصندوق');
+      return;
+    }
+
+    try {
+      setIsLoading(true);
+
+      const updatedExpense: Expense = {
+        ...editingExpense,
+        amount,
+        reason: expenseReason,
+        timestamp: new Date()
+      };
+
+      await db_service.saveExpense(updatedExpense);
+
+      setExpenseAmount('');
+      setExpenseReason('');
+      setEditingExpense(null);
+      setShowEditExpenseModal(false);
+      setError('');
+      await loadData();
+    } catch (error) {
+      console.error('Error editing expense:', error);
+      setError('فشل في تعديل المصروف');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const deleteExpense = async (expense: Expense) => {
+    if (!confirm('هل أنت متأكد من حذف هذا المصروف؟')) return;
+
+    try {
+      setIsLoading(true);
+      await db_service.deleteExpense(expense.id);
+      await loadData();
+    } catch (error) {
+      console.error('Error deleting expense:', error);
+      setError('فشل في حذف المصروف');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const openEditExpenseModal = (expense: Expense) => {
+    setEditingExpense(expense);
+    setExpenseAmount(expense.amount.toString());
+    setExpenseReason(expense.reason);
+    setShowEditExpenseModal(true);
   };
 
   const addExternalMoney = async () => {
@@ -360,14 +407,6 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
 
       await db_service.saveExternalMoney(externalMoney);
 
-      const updatedShift = {
-        ...activeShift,
-        externalMoney: [...activeShift.externalMoney, externalMoney],
-        totalAmount: activeShift.totalAmount + amount
-      };
-
-      await db_service.saveShift(updatedShift);
-
       setExternalAmount('');
       setExternalReason('');
       setShowExternalMoneyModal(false);
@@ -375,7 +414,7 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
       await loadData();
     } catch (error) {
       console.error('Error adding external money:', error);
-      setError('Failed to add external money');
+      setError('فشل في إضافة الأموال الخارجية');
     } finally {
       setIsLoading(false);
     }
@@ -393,7 +432,7 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
 
       // Check cash discrepancy
       if (Math.abs(finalCashAmount - expectedCash) > 0.01) {
-        discrepancies.push(`Cash discrepancy: Expected ${expectedCash} EGP, Found ${finalCashAmount} EGP`);
+        discrepancies.push(`تضارب في النقدية: متوقع ${expectedCash} جنيه، موجود ${finalCashAmount} جنيه`);
       }
 
       // Check inventory discrepancies
@@ -404,7 +443,7 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
           .reduce((sum, p) => sum + p.quantity, 0);
 
         if (reportedAmount !== expectedAmount) {
-          discrepancies.push(`${item.name}: Expected ${expectedAmount}, Found ${reportedAmount}`);
+          discrepancies.push(`${item.name}: متوقع ${expectedAmount}، موجود ${reportedAmount}`);
         }
 
         // Update item inventory to reported amount
@@ -437,7 +476,7 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
       await loadData();
     } catch (error) {
       console.error('Error closing shift:', error);
-      setError('Failed to close shift');
+      setError('فشل في إغلاق الوردية');
     } finally {
       setIsLoading(false);
     }
@@ -462,7 +501,7 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
       await loadData();
     } catch (error) {
       console.error('Error creating customer:', error);
-      setError('Failed to create customer');
+      setError('فشل في إنشاء العميل');
     } finally {
       setIsLoading(false);
     }
@@ -474,14 +513,14 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
     return (
       <div className="text-center py-12">
         <Clock className="h-16 w-16 text-gray-400 mx-auto mb-4" />
-        <h2 className="text-2xl font-bold text-gray-900 mb-4">No Active Shift</h2>
-        <p className="text-gray-600 mb-6">Start a new shift to begin selling items</p>
+        <h2 className="text-2xl font-bold text-gray-900 mb-4">لا توجد وردية نشطة</h2>
+        <p className="text-gray-600 mb-6">ابدأ وردية جديدة لبدء بيع المنتجات</p>
         <button
           onClick={startShift}
           disabled={isLoading}
           className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg font-medium disabled:opacity-50"
         >
-          {isLoading ? 'Starting...' : 'Start Shift'}
+          {isLoading ? 'جاري البدء...' : 'بدء الوردية'}
         </button>
         {error && (
           <div className="mt-4 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">
@@ -498,12 +537,12 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
       <div className="bg-white rounded-lg shadow-sm p-6">
         <div className="flex justify-between items-center mb-4">
           <div>
-            <h2 className="text-xl font-bold text-gray-900">Active Shift</h2>
-            <p className="text-gray-600">Started: {activeShift.startTime.toLocaleString()}</p>
+            <h2 className="text-xl font-bold text-gray-900">الوردية النشطة</h2>
+            <p className="text-gray-600">بدأت: {activeShift.startTime.toLocaleString('ar-EG')}</p>
           </div>
           <div className="text-right">
-            <div className="text-2xl font-bold text-green-600">{currentCash.toFixed(2)} EGP</div>
-            <div className="text-sm text-gray-600">Current Cash</div>
+            <div className="text-2xl font-bold text-green-600">{currentCash.toFixed(2)} جنيه</div>
+            <div className="text-sm text-gray-600">النقدية الحالية</div>
           </div>
         </div>
 
@@ -512,25 +551,25 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
             <div className="text-2xl font-bold text-blue-600">
               {activeShift.purchases.reduce((sum, p) => sum + p.quantity, 0)}
             </div>
-            <div className="text-sm text-blue-600">Items Sold</div>
+            <div className="text-sm text-blue-600">المنتجات المباعة</div>
           </div>
           <div className="bg-green-50 p-4 rounded-lg">
             <div className="text-2xl font-bold text-green-600">
-              {activeShift.purchases.reduce((sum, p) => sum + (p.price * p.quantity), 0).toFixed(2)} EGP
+              {activeShift.purchases.reduce((sum, p) => sum + (p.price * p.quantity), 0).toFixed(2)} جنيه
             </div>
-            <div className="text-sm text-green-600">Total Sales</div>
+            <div className="text-sm text-green-600">إجمالي المبيعات</div>
           </div>
           <div className="bg-red-50 p-4 rounded-lg">
             <div className="text-2xl font-bold text-red-600">
-              {activeShift.expenses.reduce((sum, e) => sum + e.amount, 0).toFixed(2)} EGP
+              {activeShift.expenses.reduce((sum, e) => sum + e.amount, 0).toFixed(2)} جنيه
             </div>
-            <div className="text-sm text-red-600">Expenses</div>
+            <div className="text-sm text-red-600">المصروفات</div>
           </div>
           <div className="bg-purple-50 p-4 rounded-lg">
             <div className="text-2xl font-bold text-purple-600">
-              {activeShift.externalMoney.reduce((sum, e) => sum + e.amount, 0).toFixed(2)} EGP
+              {activeShift.externalMoney.reduce((sum, e) => sum + e.amount, 0).toFixed(2)} جنيه
             </div>
-            <div className="text-sm text-purple-600">External Money</div>
+            <div className="text-sm text-purple-600">الأموال الخارجية</div>
           </div>
         </div>
 
@@ -539,19 +578,19 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
             onClick={() => setShowExpenseModal(true)}
             className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg"
           >
-            Add Expense
+            إضافة مصروف
           </button>
           <button
             onClick={() => setShowExternalMoneyModal(true)}
             className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg"
           >
-            Add External Money
+            إضافة أموال خارجية
           </button>
           <button
             onClick={() => setShowCloseShiftModal(true)}
             className="bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded-lg"
           >
-            Close Shift
+            إغلاق الوردية
           </button>
         </div>
       </div>
@@ -563,20 +602,56 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
         </div>
       )}
 
+      {/* Current Shift Expenses */}
+      {activeShift.expenses.length > 0 && (
+        <div className="bg-white rounded-lg shadow-sm p-6">
+          <h3 className="text-lg font-semibold text-gray-900 mb-4">مصروفات الوردية الحالية</h3>
+          <div className="space-y-3">
+            {activeShift.expenses.map(expense => (
+              <div key={expense.id} className="flex justify-between items-center p-4 bg-red-50 rounded-lg">
+                <div>
+                  <div className="font-medium">{expense.reason}</div>
+                  <div className="text-sm text-gray-600">{expense.amount.toFixed(2)} جنيه</div>
+                  <div className="text-xs text-gray-500">
+                    {expense.timestamp.toLocaleString('ar-EG')} - {expense.createdBy}
+                  </div>
+                </div>
+                <div className="flex space-x-2">
+                  <button
+                    onClick={() => openEditExpenseModal(expense)}
+                    className="bg-blue-600 hover:bg-blue-700 text-white p-2 rounded-lg"
+                    title="تعديل"
+                  >
+                    <Edit className="h-4 w-4" />
+                  </button>
+                  <button
+                    onClick={() => deleteExpense(expense)}
+                    className="bg-red-600 hover:bg-red-700 text-white p-2 rounded-lg"
+                    title="حذف"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Unpaid Customer Purchases */}
       {unpaidPurchases.length > 0 && (
         <div className="bg-white rounded-lg shadow-sm p-6">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">Unpaid Customer Purchases</h3>
+          <h3 className="text-lg font-semibold text-gray-900 mb-4">مشتريات العملاء غير المدفوعة</h3>
           <div className="space-y-3">
             {unpaidPurchases.map(purchase => (
               <div key={purchase.id} className="flex justify-between items-center p-4 bg-yellow-50 rounded-lg">
                 <div>
                   <div className="font-medium">{purchase.customerName}</div>
                   <div className="text-sm text-gray-600">
-                    {purchase.items.length} items - {purchase.totalAmount.toFixed(2)} EGP
+                    {purchase.items.length} منتج - {purchase.totalAmount.toFixed(2)} جنيه
                   </div>
                   <div className="text-xs text-gray-500">
-                    {purchase.timestamp.toLocaleString()}
+                    {purchase.timestamp.toLocaleString('ar-EG')}
                   </div>
                 </div>
                 <button
@@ -584,7 +659,7 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
                   disabled={isLoading}
                   className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm disabled:opacity-50"
                 >
-                  Mark as Paid
+                  تحديد كمدفوع
                 </button>
               </div>
             ))}
@@ -596,7 +671,7 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
         {/* Items Grid */}
         <div className="lg:col-span-2">
           <div className="bg-white rounded-lg shadow-sm p-6">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">Items</h3>
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">المنتجات</h3>
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
               {items.map(item => (
                 <div
@@ -609,9 +684,9 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
                   onClick={() => item.currentAmount > 0 && addToCart(item)}
                 >
                   <div className="font-medium text-gray-900">{item.name}</div>
-                  <div className="text-lg font-bold text-blue-600">{item.sellPrice} EGP</div>
+                  <div className="text-lg font-bold text-blue-600">{item.sellPrice} جنيه</div>
                   <div className={`text-sm ${item.currentAmount > 0 ? 'text-green-600' : 'text-red-600'}`}>
-                    Stock: {item.currentAmount}
+                    المخزون: {item.currentAmount}
                   </div>
                 </div>
               ))}
@@ -621,7 +696,7 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
 
         {/* Cart */}
         <div className="bg-white rounded-lg shadow-sm p-6">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">Cart</h3>
+          <h3 className="text-lg font-semibold text-gray-900 mb-4">السلة</h3>
           
           {/* Customer Purchase Toggle */}
           <div className="mb-4">
@@ -632,7 +707,7 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
                 onChange={(e) => setIsCustomerPurchase(e.target.checked)}
                 className="mr-2"
               />
-              <span className="text-sm">Customer Purchase (Unpaid)</span>
+              <span className="text-sm">شراء عميل (غير مدفوع)</span>
             </label>
           </div>
 
@@ -648,7 +723,7 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
                   }}
                   className="flex-1 border border-gray-300 rounded-lg px-3 py-2"
                 >
-                  <option value="">Select Customer</option>
+                  <option value="">اختر عميل</option>
                   {customers.map(customer => (
                     <option key={customer.id} value={customer.id}>
                       {customer.name}
@@ -671,7 +746,7 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
               <div key={cartItem.itemId} className="flex justify-between items-center p-3 bg-gray-50 rounded-lg">
                 <div>
                   <div className="font-medium">{cartItem.name}</div>
-                  <div className="text-sm text-gray-600">{cartItem.price} EGP each</div>
+                  <div className="text-sm text-gray-600">{cartItem.price} جنيه للقطعة</div>
                 </div>
                 <div className="flex items-center space-x-2">
                   <button
@@ -702,15 +777,15 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
           {cart.length > 0 && (
             <div className="border-t pt-4">
               <div className="flex justify-between items-center mb-4">
-                <span className="text-lg font-semibold">Total:</span>
-                <span className="text-xl font-bold text-blue-600">{cartTotal.toFixed(2)} EGP</span>
+                <span className="text-lg font-semibold">الإجمالي:</span>
+                <span className="text-xl font-bold text-blue-600">{cartTotal.toFixed(2)} جنيه</span>
               </div>
               <button
                 onClick={processSale}
                 disabled={isLoading || (isCustomerPurchase && !selectedCustomer)}
                 className="w-full bg-green-600 hover:bg-green-700 text-white py-3 rounded-lg font-medium disabled:opacity-50"
               >
-                {isLoading ? 'Processing...' : isCustomerPurchase ? 'Add to Customer Tab' : 'Complete Sale'}
+                {isLoading ? 'جاري المعالجة...' : isCustomerPurchase ? 'إضافة لحساب العميل' : 'إتمام البيع'}
               </button>
             </div>
           )}
@@ -721,10 +796,10 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
       {showExpenseModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg p-6 w-full max-w-md">
-            <h3 className="text-lg font-semibold mb-4">Add Expense</h3>
+            <h3 className="text-lg font-semibold mb-4">إضافة مصروف</h3>
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Amount (EGP)</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">المبلغ (جنيه)</label>
                 <input
                   type="number"
                   value={expenseAmount}
@@ -734,17 +809,17 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
                   max={currentCash}
                 />
                 <div className="text-xs text-gray-500 mt-1">
-                  Maximum: {currentCash.toFixed(2)} EGP
+                  الحد الأقصى: {currentCash.toFixed(2)} جنيه
                 </div>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Reason</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">السبب</label>
                 <input
                   type="text"
                   value={expenseReason}
                   onChange={(e) => setExpenseReason(e.target.value)}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2"
-                  placeholder="Enter reason for expense"
+                  placeholder="أدخل سبب المصروف"
                 />
               </div>
             </div>
@@ -753,14 +828,69 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
                 onClick={() => setShowExpenseModal(false)}
                 className="flex-1 bg-gray-300 hover:bg-gray-400 text-gray-700 py-2 rounded-lg"
               >
-                Cancel
+                إلغاء
               </button>
               <button
                 onClick={addExpense}
                 disabled={!expenseAmount || !expenseReason || parseFloat(expenseAmount) > currentCash}
                 className="flex-1 bg-red-600 hover:bg-red-700 text-white py-2 rounded-lg disabled:opacity-50"
               >
-                Add Expense
+                إضافة مصروف
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Expense Modal */}
+      {showEditExpenseModal && editingExpense && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-md">
+            <h3 className="text-lg font-semibold mb-4">تعديل المصروف</h3>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">المبلغ (جنيه)</label>
+                <input
+                  type="number"
+                  value={expenseAmount}
+                  onChange={(e) => setExpenseAmount(e.target.value)}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                  placeholder="0.00"
+                  max={currentCash + editingExpense.amount}
+                />
+                <div className="text-xs text-gray-500 mt-1">
+                  الحد الأقصى: {(currentCash + editingExpense.amount).toFixed(2)} جنيه
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">السبب</label>
+                <input
+                  type="text"
+                  value={expenseReason}
+                  onChange={(e) => setExpenseReason(e.target.value)}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                  placeholder="أدخل سبب المصروف"
+                />
+              </div>
+            </div>
+            <div className="flex space-x-3 mt-6">
+              <button
+                onClick={() => {
+                  setShowEditExpenseModal(false);
+                  setEditingExpense(null);
+                  setExpenseAmount('');
+                  setExpenseReason('');
+                }}
+                className="flex-1 bg-gray-300 hover:bg-gray-400 text-gray-700 py-2 rounded-lg"
+              >
+                إلغاء
+              </button>
+              <button
+                onClick={editExpense}
+                disabled={!expenseAmount || !expenseReason || parseFloat(expenseAmount) > (currentCash + editingExpense.amount)}
+                className="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-2 rounded-lg disabled:opacity-50"
+              >
+                حفظ التعديل
               </button>
             </div>
           </div>
@@ -771,10 +901,10 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
       {showExternalMoneyModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg p-6 w-full max-w-md">
-            <h3 className="text-lg font-semibold mb-4">Add External Money</h3>
+            <h3 className="text-lg font-semibold mb-4">إضافة أموال خارجية</h3>
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Amount (EGP)</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">المبلغ (جنيه)</label>
                 <input
                   type="number"
                   value={externalAmount}
@@ -784,13 +914,13 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Reason</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">السبب</label>
                 <input
                   type="text"
                   value={externalReason}
                   onChange={(e) => setExternalReason(e.target.value)}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2"
-                  placeholder="Enter reason for external money"
+                  placeholder="أدخل سبب الأموال الخارجية"
                 />
               </div>
             </div>
@@ -799,14 +929,14 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
                 onClick={() => setShowExternalMoneyModal(false)}
                 className="flex-1 bg-gray-300 hover:bg-gray-400 text-gray-700 py-2 rounded-lg"
               >
-                Cancel
+                إلغاء
               </button>
               <button
                 onClick={addExternalMoney}
                 disabled={!externalAmount || !externalReason}
                 className="flex-1 bg-purple-600 hover:bg-purple-700 text-white py-2 rounded-lg disabled:opacity-50"
               >
-                Add Money
+                إضافة أموال
               </button>
             </div>
           </div>
@@ -817,13 +947,13 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
       {showCloseShiftModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
-            <h3 className="text-lg font-semibold mb-4">Close Shift</h3>
+            <h3 className="text-lg font-semibold mb-4">إغلاق الوردية</h3>
             
             <div className="space-y-6">
               {/* Final Cash */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Final Cash Count (EGP)
+                  عدد النقدية النهائي (جنيه)
                 </label>
                 <input
                   type="number"
@@ -833,14 +963,14 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
                   placeholder="0.00"
                 />
                 <div className="text-xs text-gray-500 mt-1">
-                  Expected: {currentCash.toFixed(2)} EGP
+                  المتوقع: {currentCash.toFixed(2)} جنيه
                 </div>
               </div>
 
               {/* Final Inventory */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Final Inventory Count
+                  عدد المخزون النهائي
                 </label>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-h-60 overflow-y-auto">
                   {items.map(item => (
@@ -848,7 +978,7 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
                       <div>
                         <div className="font-medium">{item.name}</div>
                         <div className="text-xs text-gray-500">
-                          Current: {item.currentAmount}
+                          الحالي: {item.currentAmount}
                         </div>
                       </div>
                       <input
@@ -869,14 +999,14 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
               {/* Close Reason */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Notes (Optional)
+                  ملاحظات (اختياري)
                 </label>
                 <textarea
                   value={closeReason}
                   onChange={(e) => setCloseReason(e.target.value)}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2"
                   rows={3}
-                  placeholder="Any notes about the shift..."
+                  placeholder="أي ملاحظات حول الوردية..."
                 />
               </div>
             </div>
@@ -886,14 +1016,14 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
                 onClick={() => setShowCloseShiftModal(false)}
                 className="flex-1 bg-gray-300 hover:bg-gray-400 text-gray-700 py-2 rounded-lg"
               >
-                Cancel
+                إلغاء
               </button>
               <button
                 onClick={closeShift}
                 disabled={!finalCash}
                 className="flex-1 bg-red-600 hover:bg-red-700 text-white py-2 rounded-lg disabled:opacity-50"
               >
-                Close Shift
+                إغلاق الوردية
               </button>
             </div>
           </div>
@@ -904,15 +1034,15 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
       {showNewCustomerModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg p-6 w-full max-w-md">
-            <h3 className="text-lg font-semibold mb-4">Add New Customer</h3>
+            <h3 className="text-lg font-semibold mb-4">إضافة عميل جديد</h3>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Customer Name</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">اسم العميل</label>
               <input
                 type="text"
                 value={newCustomerName}
                 onChange={(e) => setNewCustomerName(e.target.value)}
                 className="w-full border border-gray-300 rounded-lg px-3 py-2"
-                placeholder="Enter customer name"
+                placeholder="أدخل اسم العميل"
               />
             </div>
             <div className="flex space-x-3 mt-6">
@@ -920,14 +1050,14 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
                 onClick={() => setShowNewCustomerModal(false)}
                 className="flex-1 bg-gray-300 hover:bg-gray-400 text-gray-700 py-2 rounded-lg"
               >
-                Cancel
+                إلغاء
               </button>
               <button
                 onClick={createCustomer}
                 disabled={!newCustomerName.trim()}
                 className="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-2 rounded-lg disabled:opacity-50"
               >
-                Add Customer
+                إضافة عميل
               </button>
             </div>
           </div>

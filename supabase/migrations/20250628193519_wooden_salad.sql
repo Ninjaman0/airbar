@@ -1,29 +1,18 @@
 /*
-  # Add external money and supplement debt transactions
+# إضافة جداول الأموال الخارجية ومعاملات ديون المكملات الغذائية
 
-  1. New Tables
-    - `external_money`
-      - `id` (uuid, primary key)
-      - `amount` (decimal)
-      - `reason` (text)
-      - `shift_id` (uuid, foreign key)
-      - `section` (text, check constraint)
-      - `timestamp` (timestamptz)
-      - `created_by` (text)
-    - `supplement_debt_transactions`
-      - `id` (uuid, primary key)
-      - `type` (text, check constraint for 'payment' or 'debt')
-      - `amount` (decimal)
-      - `note` (text)
-      - `timestamp` (timestamptz)
-      - `created_by` (text)
+1. جداول جديدة
+   - `external_money` - لتتبع الأموال الخارجية في الوردية
+   - `supplement_debt_transactions` - لتتبع معاملات ديون المكملات الغذائية
 
-  2. Schema Changes
-    - Add `external_money` column to `shifts` table
+2. الأمان
+   - تفعيل RLS على الجداول الجديدة
+   - إضافة سياسات للسماح بجميع العمليات
 
-  3. Security
-    - Enable RLS on both new tables
-    - Add policies for public access
+3. التغييرات
+   - إضافة عمود external_money إلى جدول shifts
+   - إضافة فهارس للأداء
+   - إضافة قيود المفاتيح الخارجية
 */
 
 -- External money table
