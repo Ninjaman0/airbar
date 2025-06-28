@@ -2,7 +2,7 @@ import { supabase } from '../lib/supabase';
 import { v4 as uuidv4 } from 'uuid';
 import { 
   User, Item, Shift, Supply, Payment, DailySummary, MonthlySummary, 
-  SupplementDebt, Category, Customer, CustomerPurchase, Expense, ShiftEdit, AdminLog 
+  SupplementDebt, Category, Customer, CustomerPurchase, Expense, ShiftEdit, AdminLog, ExternalMoney, SupplementDebtTransaction 
 } from '../types';
 import { realtimeService } from './realtime';
 
@@ -449,7 +449,7 @@ class DatabaseService {
   // Expense operations
   async saveExpense(expense: Expense): Promise<void> {
     try {
-      const { error } = await supabase.from('expenses').insert({
+      const { error } = await supabase.from('expenses').upsert({
         id: expense.id,
         amount: expense.amount.toString(),
         reason: expense.reason,
@@ -463,6 +463,26 @@ class DatabaseService {
       realtimeService.broadcast('EXPENSE_ADDED', { type: 'expense', expense }, expense.section);
     } catch (error) {
       this.handleError(error, 'saveExpense');
+    }
+  }
+
+  async deleteExpense(id: string): Promise<void> {
+    try {
+      const { data: expense } = await supabase
+        .from('expenses')
+        .select('section')
+        .eq('id', id)
+        .single();
+
+      const { error } = await supabase.from('expenses').delete().eq('id', id);
+      
+      if (error) throw error;
+
+      if (expense) {
+        realtimeService.broadcast('EXPENSE_ADDED', { type: 'expense_deleted', id }, expense.section);
+      }
+    } catch (error) {
+      this.handleError(error, 'deleteExpense');
     }
   }
 
@@ -487,6 +507,89 @@ class DatabaseService {
     } catch (error) {
       this.handleError(error, 'getExpensesByShift');
       return [];
+    }
+  }
+
+  // External money operations
+  async saveExternalMoney(externalMoney: ExternalMoney): Promise<void> {
+    try {
+      const { error } = await supabase.from('external_money').upsert({
+        id: externalMoney.id,
+        amount: externalMoney.amount.toString(),
+        reason: externalMoney.reason,
+        shift_id: externalMoney.shiftId,
+        section: externalMoney.section,
+        timestamp: externalMoney.timestamp.toISOString(),
+        created_by: externalMoney.createdBy,
+      });
+
+      if (error) throw error;
+      realtimeService.broadcast('EXPENSE_ADDED', { type: 'external_money', externalMoney }, externalMoney.section);
+    } catch (error) {
+      this.handleError(error, 'saveExternalMoney');
+    }
+  }
+
+  async deleteExternalMoney(id: string): Promise<void> {
+    try {
+      const { data: externalMoney } = await supabase
+        .from('external_money')
+        .select('section')
+        .eq('id', id)
+        .single();
+
+      const { error } = await supabase.from('external_money').delete().eq('id', id);
+      
+      if (error) throw error;
+
+      if (externalMoney) {
+        realtimeService.broadcast('EXPENSE_ADDED', { type: 'external_money_deleted', id }, externalMoney.section);
+      }
+    } catch (error) {
+      this.handleError(error, 'deleteExternalMoney');
+    }
+  }
+
+  async getExternalMoneyByShift(shiftId: string): Promise<ExternalMoney[]> {
+    try {
+      const { data, error } = await supabase
+        .from('external_money')
+        .select('*')
+        .eq('shift_id', shiftId);
+
+      if (error) throw error;
+
+      return data.map(money => ({
+        id: money.id,
+        amount: parseFloat(money.amount),
+        reason: money.reason,
+        shiftId: money.shift_id,
+        section: money.section,
+        timestamp: new Date(money.timestamp),
+        createdBy: money.created_by,
+      }));
+    } catch (error) {
+      this.handleError(error, 'getExternalMoneyByShift');
+      return [];
+    }
+  }
+
+  // Customer payment logging
+  async logCustomerPayment(customerId: string, customerName: string, amount: number, paidPurchases: CustomerPurchase[], shiftId: string, section: 'store' | 'supplement'): Promise<void> {
+    try {
+      const log: AdminLog = {
+        id: uuidv4(),
+        actionType: 'customer_payment',
+        itemOrShiftAffected: `Customer: ${customerName}`,
+        changeDetails: `Payment of ${amount} EGP received. Paid purchases: ${paidPurchases.map(p => p.id).join(', ')}`,
+        timestamp: new Date(),
+        adminName: 'System',
+        section
+      };
+
+      await this.saveAdminLog(log);
+    } catch (error) {
+      console.error('Error logging customer payment:', error);
     }
   }
 
@@ -551,6 +654,7 @@ class DatabaseService {
         status: shift.status,
         purchases: shift.purchases,
         expenses: shift.expenses,
+        external_money: shift.externalMoney || [],
         total_amount: shift.totalAmount.toString(),
         start_time: shift.startTime.toISOString(),
         end_time: shift.endTime?.toISOString(),
@@ -580,6 +684,10 @@ class DatabaseService {
       if (error && error.code !== 'PGRST116') throw error;
       if (!data) return null;
 
+      // Load expenses and external money
+      const expenses = await this.getExpensesByShift(data.id);
+      const externalMoney = await this.getExternalMoneyByShift(data.id);
+
       return {
         id: data.id,
         userId: data.user_id,
@@ -587,7 +695,8 @@ class DatabaseService {
         section: data.section,
         status: data.status,
         purchases: data.purchases as any,
-        expenses: data.expenses as any,
+        expenses,
+        externalMoney,
         totalAmount: parseFloat(data.total_amount),
         startTime: new Date(data.start_time),
         endTime: data.end_time ? new Date(data.end_time) : undefined,
@@ -613,6 +722,10 @@ class DatabaseService {
       if (error && error.code !== 'PGRST116') throw error;
       if (!data) return null;
 
+      // Load expenses and external money
+      const expenses = await this.getExpensesByShift(data.id);
+      const externalMoney = await this.getExternalMoneyByShift(data.id);
+
       return {
         id: data.id,
         userId: data.user_id,
@@ -620,7 +733,8 @@ class DatabaseService {
         section: data.section,
         status: data.status,
         purchases: data.purchases as any,
-        expenses: data.expenses as any,
+        expenses,
+        externalMoney,
         totalAmount: parseFloat(data.total_amount),
         startTime: new Date(data.start_time),
         endTime: data.end_time ? new Date(data.end_time) : undefined,
@@ -645,23 +759,31 @@ class DatabaseService {
 
       if (error) throw error;
 
-      return data.map(shift => ({
-        id: shift.id,
-        userId: shift.user_id,
-        username: shift.username,
-        section: shift.section,
-        status: shift.status,
-        purchases: shift.purchases as any,
-        expenses: shift.expenses as any,
-        totalAmount: parseFloat(shift.total_amount),
-        startTime: new Date(shift.start_time),
-        endTime: shift.end_time ? new Date(shift.end_time) : undefined,
-        finalInventory: shift.final_inventory as any,
-        finalCash: shift.final_cash ? parseFloat(shift.final_cash) : undefined,
-        discrepancies: shift.discrepancies as any,
-        closeReason: shift.close_reason,
-        validationStatus: shift.validation_status,
+      const shifts = await Promise.all(data.map(async (shift) => {
+        const expenses = await this.getExpensesByShift(shift.id);
+        const externalMoney = await this.getExternalMoneyByShift(shift.id);
+
+        return {
+          id: shift.id,
+          userId: shift.user_id,
+          username: shift.username,
+          section: shift.section,
+          status: shift.status,
+          purchases: shift.purchases as any,
+          expenses,
+          externalMoney,
+          totalAmount: parseFloat(shift.total_amount),
+          startTime: new Date(shift.start_time),
+          endTime: shift.end_time ? new Date(shift.end_time) : undefined,
+          finalInventory: shift.final_inventory as any,
+          finalCash: shift.final_cash ? parseFloat(shift.final_cash) : undefined,
+          discrepancies: shift.discrepancies as any,
+          closeReason: shift.close_reason,
+          validationStatus: shift.validation_status,
+        };
       }));
+
+      return shifts;
     } catch (error) {
       this.handleError(error, 'getShiftsBySection');
       return [];
@@ -710,37 +832,6 @@ class DatabaseService {
     }
   }
 
-  // Payment operations (keeping for compatibility)
-  async savePayment(payment: Payment): Promise<void> {
-    console.log('Payment saved:', payment);
-  }
-
-  async getAllPayments(): Promise<Payment[]> {
-    return [];
-  }
-
-  // Daily summary operations (keeping for compatibility)
-  async saveDailySummary(summary: DailySummary): Promise<void> {
-    console.log('Daily summary saved:', summary);
-  }
-
-  async getDailySummary(date: string, section: 'store' | 'supplement'): Promise<DailySummary | null> {
-    return null;
-  }
-
-  // Monthly summary operations (keeping for compatibility)
-  async saveMonthlySummary(summary: MonthlySummary): Promise<void> {
-    console.log('Monthly summary saved:', summary);
-  }
-
-  async getMonthlySummary(month: string, section: 'store' | 'supplement'): Promise<MonthlySummary | null> {
-    return null;
-  }
-
-  async getMonthlySummariesBySection(section: 'store' | 'supplement'): Promise<MonthlySummary[]> {
-    return [];
-  }
-
   // Supplement debt operations
   async saveSupplementDebt(debt: SupplementDebt): Promise<void> {
     try {
@@ -777,6 +868,48 @@ class DatabaseService {
     }
   }
 
+  // Supplement debt transaction operations
+  async saveSupplementDebtTransaction(transaction: SupplementDebtTransaction): Promise<void> {
+    try {
+      const { error } = await supabase.from('supplement_debt_transactions').insert({
+        id: transaction.id,
+        type: transaction.type,
+        amount: transaction.amount.toString(),
+        note: transaction.note,
+        timestamp: transaction.timestamp.toISOString(),
+        created_by: transaction.createdBy,
+      });
+
+      if (error) throw error;
+      realtimeService.broadcast('ITEM_UPDATED', { type: 'supplement_debt_transaction', transaction }, 'supplement');
+    } catch (error) {
+      this.handleError(error, 'saveSupplementDebtTransaction');
+    }
+  }
+
+  async getSupplementDebtTransactions(): Promise<SupplementDebtTransaction[]> {
+    try {
+      const { data, error } = await supabase
+        .from('supplement_debt_transactions')
+        .select('*')
+        .order('timestamp', { ascending: false });
+
+      if (error) throw error;
+
+      return data.map(transaction => ({
+        id: transaction.id,
+        type: transaction.type,
+        amount: parseFloat(transaction.amount),
+        note: transaction.note,
+        timestamp: new Date(transaction.timestamp),
+        createdBy: transaction.created_by,
+      }));
+    } catch (error) {
+      this.handleError(error, 'getSupplementDebtTransactions');
+      return [];
+    }
+  }
+
   // Settings operations
   async saveSetting(key: string, value: any): Promise<void> {
     try {
@@ -804,6 +937,37 @@ class DatabaseService {
     } catch (error) {
       return this.handleError(error, 'getSetting');
     }
+  }
+
+  // Payment operations (keeping for compatibility)
+  async savePayment(payment: Payment): Promise<void> {
+    console.log('Payment saved:', payment);
+  }
+
+  async getAllPayments(): Promise<Payment[]> {
+    return [];
+  }
+
+  // Daily summary operations (keeping for compatibility)
+  async saveDailySummary(summary: DailySummary): Promise<void> {
+    console.log('Daily summary saved:', summary);
+  }
+
+  async getDailySummary(date: string, section: 'store' | 'supplement'): Promise<DailySummary | null> {
+    return null;
+  }
+
+  // Monthly summary operations (keeping for compatibility)
+  async saveMonthlySummary(summary: MonthlySummary): Promise<void> {
+    console.log('Monthly summary saved:', summary);
+  }
+
+  async getMonthlySummary(month: string, section: 'store' | 'supplement'): Promise<MonthlySummary | null> {
+    return null;
+  }
+
+  async getMonthlySummariesBySection(section: 'store' | 'supplement'): Promise<MonthlySummary[]> {
+    return [];
   }
 }
 

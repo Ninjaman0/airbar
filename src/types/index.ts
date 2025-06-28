@@ -62,6 +62,25 @@ export interface Expense {
   createdBy: string;
 }
 
+export interface ExternalMoney {
+  id: string;
+  amount: number;
+  reason: string;
+  shiftId: string;
+  section: 'store' | 'supplement';
+  timestamp: Date;
+  createdBy: string;
+}
+
+export interface SupplementDebtTransaction {
+  id: string;
+  type: 'payment' | 'debt';
+  amount: number;
+  note: string;
+  timestamp: Date;
+  createdBy: string;
+}
+
 export interface ShiftEdit {
   id: string;
   shiftId: string;
@@ -91,6 +110,7 @@ export interface Shift {
   status: 'active' | 'closed';
   purchases: PurchaseItem[];
   expenses: Expense[];
+  externalMoney: ExternalMoney[];
   totalAmount: number;
   startTime: Date;
   endTime?: Date;
@@ -172,4 +192,13 @@ export interface DashboardStats {
   monthlyRevenue: number;
   totalCustomers: number;
   pendingCustomerDebt: number;
+}
+
+export interface CustomerDebt {
+  customerId: string;
+  customerName: string;
+  totalAmount: number;
+  totalCost: number;
+  totalProfit: number;
+  items: CustomerPurchase[];
 }
