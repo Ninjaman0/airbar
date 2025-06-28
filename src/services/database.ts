@@ -39,6 +39,15 @@ class DatabaseService {
     throw error;
   }
 
+  // Enhanced broadcast function for better realtime updates
+  private broadcastUpdate(type: string, data: any, section?: 'store' | 'supplement') {
+    // Broadcast via realtime service
+    realtimeService.broadcast(type as any, data, section);
+    
+    // Also log the update for debugging
+    console.log(`Broadcasting ${type} update:`, data);
+  }
+
   // User operations
   async createUser(user: User): Promise<void> {
     try {
@@ -52,6 +61,7 @@ class DatabaseService {
 
       if (error) throw error;
       console.log('User created successfully:', user.username);
+      this.broadcastUpdate('ITEM_UPDATED', { type: 'user', user });
     } catch (error) {
       this.handleError(error, 'createUser');
     }
@@ -117,6 +127,7 @@ class DatabaseService {
 
       if (error) throw error;
       console.log('User updated successfully:', user.username);
+      this.broadcastUpdate('ITEM_UPDATED', { type: 'user_updated', user });
     } catch (error) {
       this.handleError(error, 'updateUser');
     }
@@ -128,6 +139,7 @@ class DatabaseService {
       
       if (error) throw error;
       console.log('User deleted successfully:', id);
+      this.broadcastUpdate('ITEM_UPDATED', { type: 'user_deleted', id });
     } catch (error) {
       this.handleError(error, 'deleteUser');
     }
@@ -147,7 +159,7 @@ class DatabaseService {
       });
 
       if (error) throw error;
-      realtimeService.broadcast('ITEM_UPDATED', { type: 'admin_log', log }, log.section);
+      this.broadcastUpdate('ADMIN_LOG_ADDED', { type: 'admin_log', log }, log.section);
     } catch (error) {
       this.handleError(error, 'saveAdminLog');
     }
@@ -188,7 +200,7 @@ class DatabaseService {
       });
 
       if (error) throw error;
-      realtimeService.broadcast('ITEM_UPDATED', { type: 'category', category }, category.section);
+      this.broadcastUpdate('ITEM_UPDATED', { type: 'category', category }, category.section);
     } catch (error) {
       this.handleError(error, 'saveCategory');
     }
@@ -228,7 +240,7 @@ class DatabaseService {
       if (error) throw error;
 
       if (category) {
-        realtimeService.broadcast('ITEM_UPDATED', { type: 'category_deleted', id }, category.section);
+        this.broadcastUpdate('ITEM_UPDATED', { type: 'category_deleted', id }, category.section);
       }
     } catch (error) {
       this.handleError(error, 'deleteCategory');
@@ -252,7 +264,7 @@ class DatabaseService {
       });
 
       if (error) throw error;
-      realtimeService.broadcast('ITEM_UPDATED', { type: 'item', item }, item.section);
+      this.broadcastUpdate('ITEM_UPDATED', { type: 'item', item }, item.section);
     } catch (error) {
       this.handleError(error, 'saveItem');
     }
@@ -326,7 +338,7 @@ class DatabaseService {
       if (error) throw error;
 
       if (item) {
-        realtimeService.broadcast('ITEM_UPDATED', { type: 'item_deleted', id }, item.section);
+        this.broadcastUpdate('ITEM_UPDATED', { type: 'item_deleted', id }, item.section);
       }
     } catch (error) {
       this.handleError(error, 'deleteItem');
@@ -344,7 +356,7 @@ class DatabaseService {
       });
 
       if (error) throw error;
-      realtimeService.broadcast('CUSTOMER_UPDATED', { type: 'customer', customer }, customer.section);
+      this.broadcastUpdate('CUSTOMER_UPDATED', { type: 'customer', customer }, customer.section);
     } catch (error) {
       this.handleError(error, 'saveCustomer');
     }
@@ -387,7 +399,7 @@ class DatabaseService {
       });
 
       if (error) throw error;
-      realtimeService.broadcast('CUSTOMER_UPDATED', { type: 'customer_purchase', purchase }, purchase.section);
+      this.broadcastUpdate('CUSTOMER_UPDATED', { type: 'customer_purchase', purchase }, purchase.section);
     } catch (error) {
       this.handleError(error, 'saveCustomerPurchase');
     }
@@ -460,7 +472,7 @@ class DatabaseService {
       });
 
       if (error) throw error;
-      realtimeService.broadcast('EXPENSE_ADDED', { type: 'expense', expense }, expense.section);
+      this.broadcastUpdate('EXPENSE_ADDED', { type: 'expense', expense }, expense.section);
     } catch (error) {
       this.handleError(error, 'saveExpense');
     }
@@ -479,7 +491,7 @@ class DatabaseService {
       if (error) throw error;
 
       if (expense) {
-        realtimeService.broadcast('EXPENSE_ADDED', { type: 'expense_deleted', id }, expense.section);
+        this.broadcastUpdate('EXPENSE_ADDED', { type: 'expense_deleted', id }, expense.section);
       }
     } catch (error) {
       this.handleError(error, 'deleteExpense');
@@ -524,7 +536,7 @@ class DatabaseService {
       });
 
       if (error) throw error;
-      realtimeService.broadcast('EXPENSE_ADDED', { type: 'external_money', externalMoney }, externalMoney.section);
+      this.broadcastUpdate('EXTERNAL_MONEY_UPDATED', { type: 'external_money', externalMoney }, externalMoney.section);
     } catch (error) {
       this.handleError(error, 'saveExternalMoney');
     }
@@ -543,7 +555,7 @@ class DatabaseService {
       if (error) throw error;
 
       if (externalMoney) {
-        realtimeService.broadcast('EXPENSE_ADDED', { type: 'external_money_deleted', id }, externalMoney.section);
+        this.broadcastUpdate('EXTERNAL_MONEY_UPDATED', { type: 'external_money_deleted', id }, externalMoney.section);
       }
     } catch (error) {
       this.handleError(error, 'deleteExternalMoney');
@@ -611,7 +623,7 @@ class DatabaseService {
 
       const shift = await this.getShift(edit.shiftId);
       if (shift) {
-        realtimeService.broadcast('SHIFT_UPDATED', { type: 'shift_edit', edit, shift }, shift.section);
+        this.broadcastUpdate('SHIFT_UPDATED', { type: 'shift_edit', edit, shift }, shift.section);
       }
     } catch (error) {
       this.handleError(error, 'saveShiftEdit');
@@ -666,7 +678,7 @@ class DatabaseService {
       });
 
       if (error) throw error;
-      realtimeService.broadcast('SHIFT_UPDATED', { type: 'shift', shift }, shift.section);
+      this.broadcastUpdate('SHIFT_UPDATED', { type: 'shift', shift }, shift.section);
     } catch (error) {
       this.handleError(error, 'saveShift');
     }
@@ -803,7 +815,7 @@ class DatabaseService {
       });
 
       if (error) throw error;
-      realtimeService.broadcast('SUPPLY_ADDED', { type: 'supply', supply }, supply.section);
+      this.broadcastUpdate('SUPPLY_ADDED', { type: 'supply', supply }, supply.section);
     } catch (error) {
       this.handleError(error, 'saveSupply');
     }
@@ -842,7 +854,7 @@ class DatabaseService {
       });
 
       if (error) throw error;
-      realtimeService.broadcast('ITEM_UPDATED', { type: 'supplement_debt', debt }, 'supplement');
+      this.broadcastUpdate('DEBT_UPDATED', { type: 'supplement_debt', debt }, 'supplement');
     } catch (error) {
       this.handleError(error, 'saveSupplementDebt');
     }
@@ -881,7 +893,7 @@ class DatabaseService {
       });
 
       if (error) throw error;
-      realtimeService.broadcast('ITEM_UPDATED', { type: 'supplement_debt_transaction', transaction }, 'supplement');
+      this.broadcastUpdate('DEBT_UPDATED', { type: 'supplement_debt_transaction', transaction }, 'supplement');
     } catch (error) {
       this.handleError(error, 'saveSupplementDebtTransaction');
     }
@@ -919,6 +931,7 @@ class DatabaseService {
       });
 
       if (error) throw error;
+      this.broadcastUpdate('ITEM_UPDATED', { type: 'setting', key, value });
     } catch (error) {
       this.handleError(error, 'saveSetting');
     }

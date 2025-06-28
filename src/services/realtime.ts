@@ -2,7 +2,7 @@ import { supabase } from '../lib/supabase';
 import { User } from '../types';
 
 export type RealtimeEvent = {
-  type: 'ITEM_UPDATED' | 'SHIFT_UPDATED' | 'CUSTOMER_UPDATED' | 'EXPENSE_ADDED' | 'SUPPLY_ADDED' | 'USER_JOINED' | 'USER_LEFT';
+  type: 'ITEM_UPDATED' | 'SHIFT_UPDATED' | 'CUSTOMER_UPDATED' | 'EXPENSE_ADDED' | 'SUPPLY_ADDED' | 'USER_JOINED' | 'USER_LEFT' | 'EXTERNAL_MONEY_UPDATED' | 'DEBT_UPDATED' | 'ADMIN_LOG_ADDED';
   data: any;
   timestamp: number;
   userId?: string;
@@ -41,8 +41,12 @@ class RealtimeService {
 
   private setupSupabaseRealtime() {
     try {
-      // Subscribe to all table changes
-      const tables = ['items', 'shifts', 'customers', 'customer_purchases', 'expenses', 'supplies', 'categories', 'admin_logs', 'users'];
+      // Subscribe to all table changes with more comprehensive coverage
+      const tables = [
+        'items', 'shifts', 'customers', 'customer_purchases', 'expenses', 
+        'supplies', 'categories', 'admin_logs', 'users', 'external_money',
+        'supplement_debt', 'supplement_debt_transactions', 'shift_edits'
+      ];
       
       tables.forEach(table => {
         const channel = supabase.channel(`public:${table}`)
@@ -66,6 +70,7 @@ class RealtimeService {
                 },
                 timestamp: Date.now(),
                 userId: this.user?.id,
+                section: this.getSectionFromRecord(payload.new || payload.old)
               };
 
               // Broadcast to all callbacks
@@ -91,22 +96,36 @@ class RealtimeService {
     }
   }
 
+  private getSectionFromRecord(record: any): 'store' | 'supplement' | undefined {
+    if (record && record.section) {
+      return record.section;
+    }
+    return undefined;
+  }
+
   private getEventTypeFromTable(table: string): RealtimeEvent['type'] {
     switch (table) {
       case 'items':
       case 'categories':
-      case 'admin_logs':
       case 'users':
         return 'ITEM_UPDATED';
       case 'shifts':
+      case 'shift_edits':
         return 'SHIFT_UPDATED';
       case 'customers':
       case 'customer_purchases':
         return 'CUSTOMER_UPDATED';
       case 'expenses':
         return 'EXPENSE_ADDED';
+      case 'external_money':
+        return 'EXTERNAL_MONEY_UPDATED';
       case 'supplies':
         return 'SUPPLY_ADDED';
+      case 'supplement_debt':
+      case 'supplement_debt_transactions':
+        return 'DEBT_UPDATED';
+      case 'admin_logs':
+        return 'ADMIN_LOG_ADDED';
       default:
         return 'ITEM_UPDATED';
     }
