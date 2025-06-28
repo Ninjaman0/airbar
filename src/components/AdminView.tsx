@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Edit, Trash2, Users, Package, BarChart3, FileText, DollarSign, AlertTriangle } from 'lucide-react';
+import { Plus, Edit, Trash2, Users, Package, BarChart3, FileText, DollarSign, AlertTriangle, Download, TrendingUp, Calendar, Eye } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useRealtime } from '../hooks/useRealtime';
 import { db_service } from '../services/database';
-import { Item, User, Shift, Category, Customer, AdminLog, SupplementDebt } from '../types';
+import { Item, User, Shift, Category, Customer, AdminLog, SupplementDebt, Supply, Expense } from '../types';
+import { generateShiftsPDF, generateMonthlySummaryPDF } from '../utils/pdfGenerator';
 import { v4 as uuidv4 } from 'uuid';
 
 interface AdminViewProps {
@@ -12,13 +13,14 @@ interface AdminViewProps {
 
 const AdminView: React.FC<AdminViewProps> = ({ section }) => {
   const { user } = useAuth();
-  const [activeTab, setActiveTab] = useState<'items' | 'users' | 'shifts' | 'customers' | 'logs' | 'debt'>('items');
+  const [activeTab, setActiveTab] = useState<'items' | 'users' | 'shifts' | 'customers' | 'logs' | 'debt' | 'supplies' | 'reports'>('items');
   const [items, setItems] = useState<Item[]>([]);
   const [users, setUsers] = useState<User[]>([]);
   const [shifts, setShifts] = useState<Shift[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [adminLogs, setAdminLogs] = useState<AdminLog[]>([]);
+  const [supplies, setSupplies] = useState<Supply[]>([]);
   const [supplementDebt, setSupplementDebt] = useState<SupplementDebt | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -29,9 +31,12 @@ const AdminView: React.FC<AdminViewProps> = ({ section }) => {
   const [showCategoryModal, setShowCategoryModal] = useState(false);
   const [showCustomerModal, setShowCustomerModal] = useState(false);
   const [showDebtModal, setShowDebtModal] = useState(false);
+  const [showSupplyModal, setShowSupplyModal] = useState(false);
+  const [showShiftDetailsModal, setShowShiftDetailsModal] = useState(false);
   const [editingItem, setEditingItem] = useState<Item | null>(null);
   const [editingUser, setEditingUser] = useState<User | null>(null);
   const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null);
+  const [selectedShift, setSelectedShift] = useState<Shift | null>(null);
 
   // Form states
   const [itemForm, setItemForm] = useState({
@@ -56,6 +61,10 @@ const AdminView: React.FC<AdminViewProps> = ({ section }) => {
   const [debtForm, setDebtForm] = useState({
     amount: ''
   });
+  const [supplyForm, setSupplyForm] = useState({
+    items: [] as Array<{ itemId: string; quantity: number; cost: number }>,
+    totalCost: ''
+  });
 
   // Real-time updates
   useRealtime((event) => {
@@ -77,6 +86,9 @@ const AdminView: React.FC<AdminViewProps> = ({ section }) => {
     if (event.data?.table === 'admin_logs') {
       loadAdminLogs();
     }
+    if (event.data?.table === 'supplies' || event.type === 'SUPPLY_ADDED') {
+      loadSupplies();
+    }
     if (event.data?.table === 'supplement_debt' && section === 'supplement') {
       loadSupplementDebt();
     }
@@ -97,11 +109,12 @@ const AdminView: React.FC<AdminViewProps> = ({ section }) => {
         loadCustomers(),
         loadCategories(),
         loadAdminLogs(),
+        loadSupplies(),
         section === 'supplement' ? loadSupplementDebt() : Promise.resolve()
       ]);
     } catch (err) {
       console.error('Error loading admin data:', err);
-      setError('Failed to load data. Please try again.');
+      setError('فشل في تحميل البيانات. يرجى المحاولة مرة أخرى.');
     } finally {
       setLoading(false);
     }
@@ -161,6 +174,15 @@ const AdminView: React.FC<AdminViewProps> = ({ section }) => {
     }
   };
 
+  const loadSupplies = async () => {
+    try {
+      const data = await db_service.getSuppliesBySection(section);
+      setSupplies(data);
+    } catch (err) {
+      console.error('Error loading supplies:', err);
+    }
+  };
+
   const loadSupplementDebt = async () => {
     try {
       const data = await db_service.getSupplementDebt();
@@ -173,7 +195,7 @@ const AdminView: React.FC<AdminViewProps> = ({ section }) => {
   const handleSaveItem = async () => {
     try {
       if (!itemForm.name || !itemForm.sellPrice || !itemForm.costPrice) {
-        alert('Please fill in all required fields');
+        alert('يرجى ملء جميع الحقول المطلوبة');
         return;
       }
 
@@ -197,9 +219,9 @@ const AdminView: React.FC<AdminViewProps> = ({ section }) => {
         id: uuidv4(),
         actionType: editingItem ? 'UPDATE_ITEM' : 'CREATE_ITEM',
         itemOrShiftAffected: item.name,
-        changeDetails: editingItem ? 'Item updated' : 'Item created',
+        changeDetails: editingItem ? 'تم تحديث المنتج' : 'تم إنشاء منتج جديد',
         timestamp: new Date(),
-        adminName: user?.username || 'Unknown',
+        adminName: user?.username || 'غير معروف',
         section
       };
       await db_service.saveAdminLog(log);
@@ -210,14 +232,14 @@ const AdminView: React.FC<AdminViewProps> = ({ section }) => {
       loadItems();
     } catch (err) {
       console.error('Error saving item:', err);
-      alert('Failed to save item');
+      alert('فشل في حفظ المنتج');
     }
   };
 
   const handleSaveUser = async () => {
     try {
       if (!userForm.username || !userForm.password) {
-        alert('Please fill in all required fields');
+        alert('يرجى ملء جميع الحقول المطلوبة');
         return;
       }
 
@@ -240,9 +262,9 @@ const AdminView: React.FC<AdminViewProps> = ({ section }) => {
         id: uuidv4(),
         actionType: editingUser ? 'UPDATE_USER' : 'CREATE_USER',
         itemOrShiftAffected: newUser.username,
-        changeDetails: editingUser ? 'User updated' : 'User created',
+        changeDetails: editingUser ? 'تم تحديث المستخدم' : 'تم إنشاء مستخدم جديد',
         timestamp: new Date(),
-        adminName: user?.username || 'Unknown'
+        adminName: user?.username || 'غير معروف'
       };
       await db_service.saveAdminLog(log);
 
@@ -252,14 +274,14 @@ const AdminView: React.FC<AdminViewProps> = ({ section }) => {
       loadUsers();
     } catch (err) {
       console.error('Error saving user:', err);
-      alert('Failed to save user');
+      alert('فشل في حفظ المستخدم');
     }
   };
 
   const handleSaveCustomer = async () => {
     try {
       if (!customerForm.name) {
-        alert('Please enter customer name');
+        alert('يرجى إدخال اسم العميل');
         return;
       }
 
@@ -277,9 +299,9 @@ const AdminView: React.FC<AdminViewProps> = ({ section }) => {
         id: uuidv4(),
         actionType: editingCustomer ? 'UPDATE_CUSTOMER' : 'CREATE_CUSTOMER',
         itemOrShiftAffected: customer.name,
-        changeDetails: editingCustomer ? 'Customer updated' : 'Customer created',
+        changeDetails: editingCustomer ? 'تم تحديث العميل' : 'تم إنشاء عميل جديد',
         timestamp: new Date(),
-        adminName: user?.username || 'Unknown',
+        adminName: user?.username || 'غير معروف',
         section
       };
       await db_service.saveAdminLog(log);
@@ -290,14 +312,14 @@ const AdminView: React.FC<AdminViewProps> = ({ section }) => {
       loadCustomers();
     } catch (err) {
       console.error('Error saving customer:', err);
-      alert('Failed to save customer');
+      alert('فشل في حفظ العميل');
     }
   };
 
   const handleSaveCategory = async () => {
     try {
       if (!categoryForm.name) {
-        alert('Please enter category name');
+        alert('يرجى إدخال اسم الفئة');
         return;
       }
 
@@ -315,9 +337,9 @@ const AdminView: React.FC<AdminViewProps> = ({ section }) => {
         id: uuidv4(),
         actionType: 'CREATE_CATEGORY',
         itemOrShiftAffected: category.name,
-        changeDetails: 'Category created',
+        changeDetails: 'تم إنشاء فئة جديدة',
         timestamp: new Date(),
-        adminName: user?.username || 'Unknown',
+        adminName: user?.username || 'غير معروف',
         section
       };
       await db_service.saveAdminLog(log);
@@ -327,21 +349,21 @@ const AdminView: React.FC<AdminViewProps> = ({ section }) => {
       loadCategories();
     } catch (err) {
       console.error('Error saving category:', err);
-      alert('Failed to save category');
+      alert('فشل في حفظ الفئة');
     }
   };
 
   const handleUpdateDebt = async () => {
     try {
       if (!debtForm.amount) {
-        alert('Please enter debt amount');
+        alert('يرجى إدخال مبلغ الدين');
         return;
       }
 
       const debt: SupplementDebt = {
         amount: parseFloat(debtForm.amount),
         lastUpdated: new Date(),
-        updatedBy: user?.username || 'Unknown'
+        updatedBy: user?.username || 'غير معروف'
       };
 
       await db_service.saveSupplementDebt(debt);
@@ -350,10 +372,10 @@ const AdminView: React.FC<AdminViewProps> = ({ section }) => {
       const log: AdminLog = {
         id: uuidv4(),
         actionType: 'UPDATE_DEBT',
-        itemOrShiftAffected: 'Supplement Debt',
-        changeDetails: `Debt updated to ${debt.amount} EGP`,
+        itemOrShiftAffected: 'دين المكملات الغذائية',
+        changeDetails: `تم تحديث الدين إلى ${debt.amount} جنيه`,
         timestamp: new Date(),
-        adminName: user?.username || 'Unknown',
+        adminName: user?.username || 'غير معروف',
         section: 'supplement'
       };
       await db_service.saveAdminLog(log);
@@ -363,12 +385,68 @@ const AdminView: React.FC<AdminViewProps> = ({ section }) => {
       loadSupplementDebt();
     } catch (err) {
       console.error('Error updating debt:', err);
-      alert('Failed to update debt');
+      alert('فشل في تحديث الدين');
+    }
+  };
+
+  const handleSaveSupply = async () => {
+    try {
+      if (supplyForm.items.length === 0 || !supplyForm.totalCost) {
+        alert('يرجى إضافة منتجات وإدخال التكلفة الإجمالية');
+        return;
+      }
+
+      const supply: Supply = {
+        id: uuidv4(),
+        section,
+        items: supplyForm.items.reduce((acc, item) => {
+          acc[item.itemId] = item.quantity;
+          return acc;
+        }, {} as Record<string, number>),
+        totalCost: parseFloat(supplyForm.totalCost),
+        timestamp: new Date(),
+        createdBy: user?.username || 'غير معروف'
+      };
+
+      await db_service.saveSupply(supply);
+
+      // Update item quantities
+      for (const supplyItem of supplyForm.items) {
+        const item = items.find(i => i.id === supplyItem.itemId);
+        if (item) {
+          const updatedItem: Item = {
+            ...item,
+            currentAmount: item.currentAmount + supplyItem.quantity,
+            updatedAt: new Date()
+          };
+          await db_service.saveItem(updatedItem);
+        }
+      }
+
+      // Log admin action
+      const log: AdminLog = {
+        id: uuidv4(),
+        actionType: 'ADD_SUPPLY',
+        itemOrShiftAffected: 'إضافة مخزون',
+        changeDetails: `تم إضافة مخزون بقيمة ${supply.totalCost} جنيه`,
+        timestamp: new Date(),
+        adminName: user?.username || 'غير معروف',
+        section
+      };
+      await db_service.saveAdminLog(log);
+
+      setShowSupplyModal(false);
+      setSupplyForm({ items: [], totalCost: '' });
+      loadSupplies();
+      loadItems();
+    } catch (err) {
+      console.error('Error saving supply:', err);
+      alert('فشل في حفظ المخزون');
     }
   };
 
   const handleDeleteItem = async (item: Item) => {
-    if (confirm(`Are you sure you want to delete "${item.name}"?`)) {
+    if (confirm(`هل أنت متأكد من حذف "${item.name}"؟`)) {
       try {
         await db_service.deleteItem(item.id);
 
@@ -377,9 +455,9 @@ const AdminView: React.FC<AdminViewProps> = ({ section }) => {
           id: uuidv4(),
           actionType: 'DELETE_ITEM',
           itemOrShiftAffected: item.name,
-          changeDetails: 'Item deleted',
+          changeDetails: 'تم حذف المنتج',
           timestamp: new Date(),
-          adminName: user?.username || 'Unknown',
+          adminName: user?.username || 'غير معروف',
           section
         };
         await db_service.saveAdminLog(log);
@@ -387,18 +465,18 @@ const AdminView: React.FC<AdminViewProps> = ({ section }) => {
         loadItems();
       } catch (err) {
         console.error('Error deleting item:', err);
-        alert('Failed to delete item');
+        alert('فشل في حذف المنتج');
       }
     }
   };
 
   const handleDeleteUser = async (userToDelete: User) => {
     if (userToDelete.id === user?.id) {
-      alert('You cannot delete your own account');
+      alert('لا يمكنك حذف حسابك الخاص');
       return;
     }
 
-    if (confirm(`Are you sure you want to delete user "${userToDelete.username}"?`)) {
+    if (confirm(`هل أنت متأكد من حذف المستخدم "${userToDelete.username}"؟`)) {
       try {
         await db_service.deleteUser(userToDelete.id);
 
@@ -407,16 +485,16 @@ const AdminView: React.FC<AdminViewProps> = ({ section }) => {
           id: uuidv4(),
           actionType: 'DELETE_USER',
           itemOrShiftAffected: userToDelete.username,
-          changeDetails: 'User deleted',
+          changeDetails: 'تم حذف المستخدم',
           timestamp: new Date(),
-          adminName: user?.username || 'Unknown'
+          adminName: user?.username || 'غير معروف'
         };
         await db_service.saveAdminLog(log);
 
         loadUsers();
       } catch (err) {
         console.error('Error deleting user:', err);
-        alert('Failed to delete user');
+        alert('فشل في حذف المستخدم');
       }
     }
   };
@@ -452,6 +530,38 @@ const AdminView: React.FC<AdminViewProps> = ({ section }) => {
     setShowCustomerModal(true);
   };
 
+  const addSupplyItem = () => {
+    setSupplyForm({
+      ...supplyForm,
+      items: [...supplyForm.items, { itemId: '', quantity: 0, cost: 0 }]
+    });
+  };
+
+  const updateSupplyItem = (index: number, field: string, value: any) => {
+    const updatedItems = [...supplyForm.items];
+    updatedItems[index] = { ...updatedItems[index], [field]: value };
+    setSupplyForm({ ...supplyForm, items: updatedItems });
+  };
+
+  const removeSupplyItem = (index: number) => {
+    const updatedItems = supplyForm.items.filter((_, i) => i !== index);
+    setSupplyForm({ ...supplyForm, items: updatedItems });
+  };
+
+  const generateReports = () => {
+    if (activeTab === 'shifts') {
+      generateShiftsPDF(shifts, section);
+    } else if (activeTab === 'reports') {
+      const currentMonth = new Date().toISOString().slice(0, 7);
+      generateMonthlySummaryPDF(shifts, items, section, currentMonth);
+    }
+  };
+
+  const openShiftDetails = (shift: Shift) => {
+    setSelectedShift(shift);
+    setShowShiftDetailsModal(true);
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -471,7 +581,7 @@ const AdminView: React.FC<AdminViewProps> = ({ section }) => {
           onClick={loadData}
           className="mt-2 text-sm underline hover:no-underline"
         >
-          Try again
+          حاول مرة أخرى
         </button>
       </div>
     );
@@ -483,12 +593,14 @@ const AdminView: React.FC<AdminViewProps> = ({ section }) => {
         <div className="border-b border-gray-200">
           <nav className="flex space-x-8 px-6">
             {[
-              { id: 'items', label: 'Items', icon: Package },
-              { id: 'users', label: 'Users', icon: Users },
-              { id: 'shifts', label: 'Shifts', icon: BarChart3 },
-              { id: 'customers', label: 'Customers', icon: Users },
-              { id: 'logs', label: 'Admin Logs', icon: FileText },
-              ...(section === 'supplement' ? [{ id: 'debt', label: 'Debt Management', icon: DollarSign }] : [])
+              { id: 'items', label: 'المنتجات', icon: Package },
+              { id: 'users', label: 'المستخدمين', icon: Users },
+              { id: 'shifts', label: 'الورديات', icon: BarChart3 },
+              { id: 'customers', label: 'العملاء', icon: Users },
+              { id: 'supplies', label: 'المخزون', icon: TrendingUp },
+              { id: 'reports', label: 'التقارير', icon: FileText },
+              { id: 'logs', label: 'سجل الأنشطة', icon: FileText },
+              ...(section === 'supplement' ? [{ id: 'debt', label: 'إدارة الديون', icon: DollarSign }] : [])
             ].map((tab) => {
               const Icon = tab.icon;
               return (
@@ -513,20 +625,20 @@ const AdminView: React.FC<AdminViewProps> = ({ section }) => {
           {activeTab === 'items' && (
             <div className="space-y-4">
               <div className="flex justify-between items-center">
-                <h3 className="text-lg font-medium">Items Management</h3>
+                <h3 className="text-lg font-medium">إدارة المنتجات</h3>
                 <div className="flex space-x-2">
                   <button
                     onClick={() => setShowCategoryModal(true)}
                     className="px-4 py-2 text-sm bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
                   >
-                    Add Category
+                    إضافة فئة
                   </button>
                   <button
                     onClick={() => setShowItemModal(true)}
                     className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
                   >
                     <Plus className="h-4 w-4" />
-                    <span>Add Item</span>
+                    <span>إضافة منتج</span>
                   </button>
                 </div>
               </div>
@@ -535,11 +647,11 @@ const AdminView: React.FC<AdminViewProps> = ({ section }) => {
                 <table className="min-w-full divide-y divide-gray-200">
                   <thead className="bg-gray-50">
                     <tr>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Sell Price</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Cost Price</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Stock</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">الاسم</th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">سعر البيع</th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">سعر التكلفة</th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">المخزون</th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">الإجراءات</th>
                     </tr>
                   </thead>
                   <tbody className="bg-white divide-y divide-gray-200">
@@ -548,7 +660,7 @@ const AdminView: React.FC<AdminViewProps> = ({ section }) => {
                         <td className="px-6 py-4 whitespace-nowrap">
                           <div className="flex items-center">
                             {item.image && (
-                              <img className="h-10 w-10 rounded-lg object-cover mr-3" src={item.image} alt={item.name} />
+                              <img className="h-10 w-10 rounded-lg object-cover ml-3" src={item.image} alt={item.name} />
                             )}
                             <div>
                               <div className="text-sm font-medium text-gray-900">{item.name}</div>
@@ -560,8 +672,8 @@ const AdminView: React.FC<AdminViewProps> = ({ section }) => {
                             </div>
                           </div>
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{item.sellPrice} EGP</td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{item.costPrice} EGP</td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{item.sellPrice} جنيه</td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{item.costPrice} جنيه</td>
                         <td className="px-6 py-4 whitespace-nowrap">
                           <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
                             item.currentAmount > 10 ? 'bg-green-100 text-green-800' :
@@ -596,13 +708,13 @@ const AdminView: React.FC<AdminViewProps> = ({ section }) => {
           {activeTab === 'users' && (
             <div className="space-y-4">
               <div className="flex justify-between items-center">
-                <h3 className="text-lg font-medium">Users Management</h3>
+                <h3 className="text-lg font-medium">إدارة المستخدمين</h3>
                 <button
                   onClick={() => setShowUserModal(true)}
                   className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
                 >
                   <Plus className="h-4 w-4" />
-                  <span>Add User</span>
+                  <span>إضافة مستخدم</span>
                 </button>
               </div>
 
@@ -610,10 +722,10 @@ const AdminView: React.FC<AdminViewProps> = ({ section }) => {
                 <table className="min-w-full divide-y divide-gray-200">
                   <thead className="bg-gray-50">
                     <tr>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Username</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Role</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Created</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">اسم المستخدم</th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">الدور</th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">تاريخ الإنشاء</th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">الإجراءات</th>
                     </tr>
                   </thead>
                   <tbody className="bg-white divide-y divide-gray-200">
@@ -624,11 +736,11 @@ const AdminView: React.FC<AdminViewProps> = ({ section }) => {
                           <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
                             userItem.role === 'admin' ? 'bg-purple-100 text-purple-800' : 'bg-gray-100 text-gray-800'
                           }`}>
-                            {userItem.role}
+                            {userItem.role === 'admin' ? 'مدير' : 'مستخدم عادي'}
                           </span>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                          {userItem.createdAt.toLocaleDateString()}
+                          {userItem.createdAt.toLocaleDateString('ar-EG')}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm font-medium space-x-2">
                           <button
@@ -656,16 +768,26 @@ const AdminView: React.FC<AdminViewProps> = ({ section }) => {
 
           {activeTab === 'shifts' && (
             <div className="space-y-4">
-              <h3 className="text-lg font-medium">Shifts History</h3>
+              <div className="flex justify-between items-center">
+                <h3 className="text-lg font-medium">تاريخ الورديات</h3>
+                <button
+                  onClick={generateReports}
+                  className="flex items-center space-x-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+                >
+                  <Download className="h-4 w-4" />
+                  <span>تصدير PDF</span>
+                </button>
+              </div>
               <div className="overflow-x-auto">
                 <table className="min-w-full divide-y divide-gray-200">
                   <thead className="bg-gray-50">
                     <tr>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">User</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Start Time</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">End Time</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total Amount</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">المستخدم</th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">وقت البداية</th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">وقت النهاية</th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">المبلغ الإجمالي</th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">الحالة</th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">الإجراءات</th>
                     </tr>
                   </thead>
                   <tbody className="bg-white divide-y divide-gray-200">
@@ -673,18 +795,26 @@ const AdminView: React.FC<AdminViewProps> = ({ section }) => {
                       <tr key={shift.id}>
                         <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{shift.username}</td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                          {shift.startTime.toLocaleString()}
+                          {shift.startTime.toLocaleString('ar-EG')}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                          {shift.endTime ? shift.endTime.toLocaleString() : 'Active'}
+                          {shift.endTime ? shift.endTime.toLocaleString('ar-EG') : 'نشط'}
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{shift.totalAmount} EGP</td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{shift.totalAmount} جنيه</td>
                         <td className="px-6 py-4 whitespace-nowrap">
                           <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
                             shift.status === 'active' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
                           }`}>
-                            {shift.status}
+                            {shift.status === 'active' ? 'نشط' : 'مغلق'}
                           </span>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                          <button
+                            onClick={() => openShiftDetails(shift)}
+                            className="text-blue-600 hover:text-blue-900"
+                          >
+                            <Eye className="h-4 w-4" />
+                          </button>
                         </td>
                       </tr>
                     ))}
@@ -697,13 +827,13 @@ const AdminView: React.FC<AdminViewProps> = ({ section }) => {
           {activeTab === 'customers' && (
             <div className="space-y-4">
               <div className="flex justify-between items-center">
-                <h3 className="text-lg font-medium">Customers Management</h3>
+                <h3 className="text-lg font-medium">إدارة العملاء</h3>
                 <button
                   onClick={() => setShowCustomerModal(true)}
                   className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
                 >
                   <Plus className="h-4 w-4" />
-                  <span>Add Customer</span>
+                  <span>إضافة عميل</span>
                 </button>
               </div>
 
@@ -711,19 +841,21 @@ const AdminView: React.FC<AdminViewProps> = ({ section }) => {
                 <table className="min-w-full divide-y divide-gray-200">
                   <thead className="bg-gray-50">
                     <tr>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Section</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Created</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">الاسم</th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">القسم</th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">تاريخ الإنشاء</th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">الإجراءات</th>
                     </tr>
                   </thead>
                   <tbody className="bg-white divide-y divide-gray-200">
                     {customers.map((customer) => (
                       <tr key={customer.id}>
                         <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{customer.name}</td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{customer.section}</td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                          {customer.createdAt.toLocaleDateString()}
+                          {customer.section === 'store' ? 'البار' : 'المكملات الغذائية'}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                          {customer.createdAt.toLocaleDateString('ar-EG')}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                           <button
@@ -741,18 +873,121 @@ const AdminView: React.FC<AdminViewProps> = ({ section }) => {
             </div>
           )}
 
-          {activeTab === 'logs' && (
+          {activeTab === 'supplies' && (
             <div className="space-y-4">
-              <h3 className="text-lg font-medium">Admin Activity Logs</h3>
+              <div className="flex justify-between items-center">
+                <h3 className="text-lg font-medium">إدارة المخزون</h3>
+                <button
+                  onClick={() => setShowSupplyModal(true)}
+                  className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                >
+                  <Plus className="h-4 w-4" />
+                  <span>إضافة مخزون</span>
+                </button>
+              </div>
+
               <div className="overflow-x-auto">
                 <table className="min-w-full divide-y divide-gray-200">
                   <thead className="bg-gray-50">
                     <tr>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Action</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Target</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Details</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Admin</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Time</th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">التاريخ</th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">التكلفة الإجمالية</th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">أضيف بواسطة</th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">عدد المنتجات</th>
+                    </tr>
+                  </thead>
+                  <tbody className="bg-white divide-y divide-gray-200">
+                    {supplies.map((supply) => (
+                      <tr key={supply.id}>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                          {supply.timestamp.toLocaleString('ar-EG')}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                          {supply.totalCost} جنيه
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                          {supply.createdBy}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                          {Object.keys(supply.items).length}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'reports' && (
+            <div className="space-y-4">
+              <div className="flex justify-between items-center">
+                <h3 className="text-lg font-medium">التقارير</h3>
+                <button
+                  onClick={generateReports}
+                  className="flex items-center space-x-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+                >
+                  <Download className="h-4 w-4" />
+                  <span>تصدير تقرير شهري</span>
+                </button>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div className="bg-blue-50 rounded-lg p-6">
+                  <div className="flex items-center">
+                    <div className="p-2 bg-blue-100 rounded-lg">
+                      <BarChart3 className="h-6 w-6 text-blue-600" />
+                    </div>
+                    <div className="mr-4">
+                      <div className="text-2xl font-bold text-gray-900">
+                        {shifts.reduce((total, shift) => total + shift.totalAmount, 0)} جنيه
+                      </div>
+                      <div className="text-sm text-gray-600">إجمالي المبيعات</div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="bg-green-50 rounded-lg p-6">
+                  <div className="flex items-center">
+                    <div className="p-2 bg-green-100 rounded-lg">
+                      <TrendingUp className="h-6 w-6 text-green-600" />
+                    </div>
+                    <div className="mr-4">
+                      <div className="text-2xl font-bold text-gray-900">
+                        {shifts.reduce((total, shift) => total + shift.purchases.reduce((sum, p) => sum + p.quantity, 0), 0)}
+                      </div>
+                      <div className="text-sm text-gray-600">المنتجات المباعة</div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="bg-yellow-50 rounded-lg p-6">
+                  <div className="flex items-center">
+                    <div className="p-2 bg-yellow-100 rounded-lg">
+                      <Users className="h-6 w-6 text-yellow-600" />
+                    </div>
+                    <div className="mr-4">
+                      <div className="text-2xl font-bold text-gray-900">{customers.length}</div>
+                      <div className="text-sm text-gray-600">إجمالي العملاء</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'logs' && (
+            <div className="space-y-4">
+              <h3 className="text-lg font-medium">سجل أنشطة المدير</h3>
+              <div className="overflow-x-auto">
+                <table className="min-w-full divide-y divide-gray-200">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">الإجراء</th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">الهدف</th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">التفاصيل</th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">المدير</th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">الوقت</th>
                     </tr>
                   </thead>
                   <tbody className="bg-white divide-y divide-gray-200">
@@ -763,7 +998,7 @@ const AdminView: React.FC<AdminViewProps> = ({ section }) => {
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{log.changeDetails}</td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{log.adminName}</td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                          {log.timestamp.toLocaleString()}
+                          {log.timestamp.toLocaleString('ar-EG')}
                         </td>
                       </tr>
                     ))}
@@ -776,7 +1011,7 @@ const AdminView: React.FC<AdminViewProps> = ({ section }) => {
           {activeTab === 'debt' && section === 'supplement' && (
             <div className="space-y-4">
               <div className="flex justify-between items-center">
-                <h3 className="text-lg font-medium">Supplement Debt Management</h3>
+                <h3 className="text-lg font-medium">إدارة ديون المكملات الغذائية</h3>
                 <button
                   onClick={() => {
                     setDebtForm({ amount: supplementDebt?.amount.toString() || '0' });
@@ -785,21 +1020,21 @@ const AdminView: React.FC<AdminViewProps> = ({ section }) => {
                   className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
                 >
                   <Edit className="h-4 w-4" />
-                  <span>Update Debt</span>
+                  <span>تحديث الدين</span>
                 </button>
               </div>
 
               <div className="bg-gray-50 rounded-lg p-6">
                 <div className="text-center">
                   <div className="text-3xl font-bold text-gray-900 mb-2">
-                    {supplementDebt?.amount || 0} EGP
+                    {supplementDebt?.amount || 0} جنيه
                   </div>
                   <div className="text-sm text-gray-500">
-                    Current Supplement Debt
+                    دين المكملات الغذائية الحالي
                   </div>
                   {supplementDebt && (
                     <div className="text-xs text-gray-400 mt-2">
-                      Last updated by {supplementDebt.updatedBy} on {supplementDebt.lastUpdated.toLocaleString()}
+                      آخر تحديث بواسطة {supplementDebt.updatedBy} في {supplementDebt.lastUpdated.toLocaleString('ar-EG')}
                     </div>
                   )}
                 </div>
@@ -809,16 +1044,17 @@ const AdminView: React.FC<AdminViewProps> = ({ section }) => {
         </div>
       </div>
 
+      {/* All modals with Arabic text... */}
       {/* Item Modal */}
       {showItemModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg p-6 w-full max-w-md">
             <h3 className="text-lg font-medium mb-4">
-              {editingItem ? 'Edit Item' : 'Add New Item'}
+              {editingItem ? 'تعديل المنتج' : 'إضافة منتج جديد'}
             </h3>
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Name</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">الاسم</label>
                 <input
                   type="text"
                   value={itemForm.name}
@@ -828,7 +1064,7 @@ const AdminView: React.FC<AdminViewProps> = ({ section }) => {
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Sell Price</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">سعر البيع</label>
                   <input
                     type="number"
                     value={itemForm.sellPrice}
@@ -837,7 +1073,7 @@ const AdminView: React.FC<AdminViewProps> = ({ section }) => {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Cost Price</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">سعر التكلفة</label>
                   <input
                     type="number"
                     value={itemForm.costPrice}
@@ -847,7 +1083,7 @@ const AdminView: React.FC<AdminViewProps> = ({ section }) => {
                 </div>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Current Amount</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">الكمية الحالية</label>
                 <input
                   type="number"
                   value={itemForm.currentAmount}
@@ -856,13 +1092,13 @@ const AdminView: React.FC<AdminViewProps> = ({ section }) => {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Category</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">الفئة</label>
                 <select
                   value={itemForm.categoryId}
                   onChange={(e) => setItemForm({ ...itemForm, categoryId: e.target.value })}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 >
-                  <option value="">No Category</option>
+                  <option value="">بدون فئة</option>
                   {categories.map((category) => (
                     <option key={category.id} value={category.id}>
                       {category.name}
@@ -871,7 +1107,7 @@ const AdminView: React.FC<AdminViewProps> = ({ section }) => {
                 </select>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Image URL</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">رابط الصورة</label>
                 <input
                   type="url"
                   value={itemForm.image}
@@ -889,29 +1125,186 @@ const AdminView: React.FC<AdminViewProps> = ({ section }) => {
                 }}
                 className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
               >
-                Cancel
+                إلغاء
               </button>
               <button
                 onClick={handleSaveItem}
                 className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
               >
-                {editingItem ? 'Update' : 'Create'}
+                {editingItem ? 'تحديث' : 'إنشاء'}
               </button>
             </div>
           </div>
         </div>
       )}
 
+      {/* Supply Modal */}
+      {showSupplyModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-2xl max-h-[80vh] overflow-y-auto">
+            <h3 className="text-lg font-medium mb-4">إضافة مخزون جديد</h3>
+            <div className="space-y-4">
+              <div className="flex justify-between items-center">
+                <label className="block text-sm font-medium text-gray-700">المنتجات</label>
+                <button
+                  onClick={addSupplyItem}
+                  className="px-3 py-1 text-sm bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition-colors"
+                >
+                  إضافة منتج
+                </button>
+              </div>
+              
+              {supplyForm.items.map((item, index) => (
+                <div key={index} className="grid grid-cols-4 gap-2 items-end">
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">المنتج</label>
+                    <select
+                      value={item.itemId}
+                      onChange={(e) => updateSupplyItem(index, 'itemId', e.target.value)}
+                      className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-blue-500"
+                    >
+                      <option value="">اختر منتج</option>
+                      {items.map((product) => (
+                        <option key={product.id} value={product.id}>
+                          {product.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">الكمية</label>
+                    <input
+                      type="number"
+                      value={item.quantity}
+                      onChange={(e) => updateSupplyItem(index, 'quantity', parseInt(e.target.value) || 0)}
+                      className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">التكلفة</label>
+                    <input
+                      type="number"
+                      value={item.cost}
+                      onChange={(e) => updateSupplyItem(index, 'cost', parseFloat(e.target.value) || 0)}
+                      className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-blue-500"
+                    />
+                  </div>
+                  <button
+                    onClick={() => removeSupplyItem(index)}
+                    className="px-2 py-1 text-sm text-red-600 hover:bg-red-50 rounded"
+                  >
+                    حذف
+                  </button>
+                </div>
+              ))}
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">التكلفة الإجمالية</label>
+                <input
+                  type="number"
+                  value={supplyForm.totalCost}
+                  onChange={(e) => setSupplyForm({ ...supplyForm, totalCost: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+              </div>
+            </div>
+            <div className="flex justify-end space-x-3 mt-6">
+              <button
+                onClick={() => {
+                  setShowSupplyModal(false);
+                  setSupplyForm({ items: [], totalCost: '' });
+                }}
+                className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+              >
+                إلغاء
+              </button>
+              <button
+                onClick={handleSaveSupply}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+              >
+                حفظ
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Shift Details Modal */}
+      {showShiftDetailsModal && selectedShift && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-4xl max-h-[80vh] overflow-y-auto">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-medium">تفاصيل الوردية</h3>
+              <button
+                onClick={() => setShowShiftDetailsModal(false)}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                ×
+              </button>
+            </div>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div>
+                <h4 className="font-medium mb-2">معلومات الوردية</h4>
+                <div className="space-y-2 text-sm">
+                  <div><span className="font-medium">المستخدم:</span> {selectedShift.username}</div>
+                  <div><span className="font-medium">بداية الوردية:</span> {selectedShift.startTime.toLocaleString('ar-EG')}</div>
+                  <div><span className="font-medium">نهاية الوردية:</span> {selectedShift.endTime ? selectedShift.endTime.toLocaleString('ar-EG') : 'نشط'}</div>
+                  <div><span className="font-medium">المبلغ الإجمالي:</span> {selectedShift.totalAmount} جنيه</div>
+                  <div><span className="font-medium">الحالة:</span> {selectedShift.status === 'active' ? 'نشط' : 'مغلق'}</div>
+                </div>
+              </div>
+
+              <div>
+                <h4 className="font-medium mb-2">المبيعات</h4>
+                <div className="max-h-40 overflow-y-auto">
+                  {selectedShift.purchases.map((purchase, index) => (
+                    <div key={index} className="flex justify-between text-sm py-1">
+                      <span>{purchase.name} x{purchase.quantity}</span>
+                      <span>{(purchase.price * purchase.quantity).toFixed(2)} جنيه</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <h4 className="font-medium mb-2">المصروفات</h4>
+                <div className="max-h-40 overflow-y-auto">
+                  {selectedShift.expenses.map((expense, index) => (
+                    <div key={index} className="flex justify-between text-sm py-1">
+                      <span>{expense.reason}</span>
+                      <span>{expense.amount} جنيه</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {selectedShift.discrepancies && selectedShift.discrepancies.length > 0 && (
+                <div>
+                  <h4 className="font-medium mb-2 text-red-600">التناقضات</h4>
+                  <div className="space-y-1">
+                    {selectedShift.discrepancies.map((discrepancy, index) => (
+                      <div key={index} className="text-sm text-red-600">{discrepancy}</div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Other modals (User, Customer, Category, Debt) with Arabic translations... */}
       {/* User Modal */}
       {showUserModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg p-6 w-full max-w-md">
             <h3 className="text-lg font-medium mb-4">
-              {editingUser ? 'Edit User' : 'Add New User'}
+              {editingUser ? 'تعديل المستخدم' : 'إضافة مستخدم جديد'}
             </h3>
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Username</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">اسم المستخدم</label>
                 <input
                   type="text"
                   value={userForm.username}
@@ -920,7 +1313,7 @@ const AdminView: React.FC<AdminViewProps> = ({ section }) => {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Password</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">كلمة المرور</label>
                 <input
                   type="password"
                   value={userForm.password}
@@ -929,14 +1322,14 @@ const AdminView: React.FC<AdminViewProps> = ({ section }) => {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Role</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">الدور</label>
                 <select
                   value={userForm.role}
                   onChange={(e) => setUserForm({ ...userForm, role: e.target.value as 'normal' | 'admin' })}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 >
-                  <option value="normal">Normal User</option>
-                  <option value="admin">Admin</option>
+                  <option value="normal">مستخدم عادي</option>
+                  <option value="admin">مدير</option>
                 </select>
               </div>
             </div>
@@ -949,13 +1342,13 @@ const AdminView: React.FC<AdminViewProps> = ({ section }) => {
                 }}
                 className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
               >
-                Cancel
+                إلغاء
               </button>
               <button
                 onClick={handleSaveUser}
                 className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
               >
-                {editingUser ? 'Update' : 'Create'}
+                {editingUser ? 'تحديث' : 'إنشاء'}
               </button>
             </div>
           </div>
@@ -966,10 +1359,10 @@ const AdminView: React.FC<AdminViewProps> = ({ section }) => {
       {showCategoryModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg p-6 w-full max-w-md">
-            <h3 className="text-lg font-medium mb-4">Add New Category</h3>
+            <h3 className="text-lg font-medium mb-4">إضافة فئة جديدة</h3>
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Category Name</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">اسم الفئة</label>
                 <input
                   type="text"
                   value={categoryForm.name}
@@ -986,13 +1379,13 @@ const AdminView: React.FC<AdminViewProps> = ({ section }) => {
                 }}
                 className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
               >
-                Cancel
+                إلغاء
               </button>
               <button
                 onClick={handleSaveCategory}
                 className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
               >
-                Create
+                إنشاء
               </button>
             </div>
           </div>
@@ -1004,11 +1397,11 @@ const AdminView: React.FC<AdminViewProps> = ({ section }) => {
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg p-6 w-full max-w-md">
             <h3 className="text-lg font-medium mb-4">
-              {editingCustomer ? 'Edit Customer' : 'Add New Customer'}
+              {editingCustomer ? 'تعديل العميل' : 'إضافة عميل جديد'}
             </h3>
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Customer Name</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">اسم العميل</label>
                 <input
                   type="text"
                   value={customerForm.name}
@@ -1026,13 +1419,13 @@ const AdminView: React.FC<AdminViewProps> = ({ section }) => {
                 }}
                 className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
               >
-                Cancel
+                إلغاء
               </button>
               <button
                 onClick={handleSaveCustomer}
                 className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
               >
-                {editingCustomer ? 'Update' : 'Create'}
+                {editingCustomer ? 'تحديث' : 'إنشاء'}
               </button>
             </div>
           </div>
@@ -1043,10 +1436,10 @@ const AdminView: React.FC<AdminViewProps> = ({ section }) => {
       {showDebtModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg p-6 w-full max-w-md">
-            <h3 className="text-lg font-medium mb-4">Update Supplement Debt</h3>
+            <h3 className="text-lg font-medium mb-4">تحديث دين المكملات الغذائية</h3>
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Debt Amount (EGP)</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">مبلغ الدين (جنيه)</label>
                 <input
                   type="number"
                   value={debtForm.amount}
@@ -1063,13 +1456,13 @@ const AdminView: React.FC<AdminViewProps> = ({ section }) => {
                 }}
                 className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
               >
-                Cancel
+                إلغاء
               </button>
               <button
                 onClick={handleUpdateDebt}
                 className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
               >
-                Update
+                تحديث
               </button>
             </div>
           </div>

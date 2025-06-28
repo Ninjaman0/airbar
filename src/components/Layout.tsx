@@ -36,7 +36,7 @@ const Layout: React.FC<LayoutProps> = ({ children, currentSection, onSectionChan
                   }`}
                 >
                   <Store className="h-4 w-4" />
-                  <span>BAR</span>
+                  <span>البار</span>
                 </button>
                 <button
                   onClick={() => onSectionChange('supplement')}
@@ -47,19 +47,19 @@ const Layout: React.FC<LayoutProps> = ({ children, currentSection, onSectionChan
                   }`}
                 >
                   <Package className="h-4 w-4" />
-                  <span>Supplements</span>
+                  <span>المكملات الغذائية</span>
                 </button>
               </div>
 
               <div className="flex items-center space-x-3">
                 <div className="text-right">
                   <div className="text-sm font-medium text-gray-900">{user?.username}</div>
-                  <div className="text-xs text-gray-500 capitalize">{user?.role}</div>
+                  <div className="text-xs text-gray-500">{user?.role === 'admin' ? 'مدير' : 'مستخدم عادي'}</div>
                 </div>
                 <button
                   onClick={logout}
                   className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
-                  title="تـسجيل الخروج"
+                  title="تسجيل الخروج"
                 >
                   <LogOut className="h-5 w-5" />
                 </button>

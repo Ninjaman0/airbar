@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ShoppingCart, Plus, Minus, Users, DollarSign, Package, Clock, AlertTriangle, CheckCircle } from 'lucide-react';
+import { ShoppingCart, Plus, Minus, Users, DollarSign, Package, Clock, AlertTriangle, CheckCircle, Calculator, Receipt } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useRealtime } from '../hooks/useRealtime';
 import { db_service } from '../services/database';
@@ -20,12 +20,16 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
   const [unpaidPurchases, setUnpaidPurchases] = useState<CustomerPurchase[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [selectedCategory, setSelectedCategory] = useState<string>('');
 
   // Modal states
   const [showExpenseModal, setShowExpenseModal] = useState(false);
   const [showCloseShiftModal, setShowCloseShiftModal] = useState(false);
   const [showCustomerModal, setShowCustomerModal] = useState(false);
   const [showUnpaidModal, setShowUnpaidModal] = useState(false);
+  const [showCalculatorModal, setShowCalculatorModal] = useState(false);
+  const [showReceiptModal, setShowReceiptModal] = useState(false);
 
   // Form states
   const [expenseForm, setExpenseForm] = useState({
@@ -39,6 +43,8 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
     finalCash: '',
     closeReason: ''
   });
+  const [calculatorValue, setCalculatorValue] = useState('0');
+  const [lastSaleReceipt, setLastSaleReceipt] = useState<any>(null);
 
   // Real-time updates
   useRealtime((event) => {
@@ -73,7 +79,7 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
       ]);
     } catch (err) {
       console.error('Error loading data:', err);
-      setError('Failed to load data. Please try again.');
+      setError('فشل في تحميل البيانات. يرجى المحاولة مرة أخرى.');
     } finally {
       setLoading(false);
     }
@@ -136,20 +142,20 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
       setActiveShift(newShift);
     } catch (err) {
       console.error('Error starting shift:', err);
-      alert('Failed to start shift');
+      alert('فشل في بدء الوردية');
     }
   };
 
   const addToCart = (item: Item) => {
     if (item.currentAmount <= 0) {
-      alert('Item is out of stock');
+      alert('المنتج غير متوفر في المخزون');
       return;
     }
 
     const existingItem = cart.find(cartItem => cartItem.itemId === item.id);
     if (existingItem) {
       if (existingItem.quantity >= item.currentAmount) {
-        alert('Cannot add more items than available in stock');
+        alert('لا يمكن إضافة كمية أكبر من المتوفر في المخزون');
         return;
       }
       setCart(cart.map(cartItem =>
@@ -229,22 +235,34 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
         await db_service.saveCustomerPurchase(customerPurchase);
       }
 
+      // Store receipt data
+      setLastSaleReceipt({
+        items: cart,
+        total: getCartTotal(),
+        customer: selectedCustomer,
+        isPaid,
+        timestamp: new Date()
+      });
+
       setActiveShift(updatedShift);
       clearCart();
       setSelectedCustomer(null);
       loadItems();
       loadUnpaidPurchases();
 
-      alert(isPaid ? 'Sale completed successfully!' : 'Sale recorded as unpaid debt');
+      // Show receipt
+      setShowReceiptModal(true);
+
+      alert(isPaid ? 'تم إتمام البيع بنجاح!' : 'تم تسجيل البيع كدين غير مدفوع');
     } catch (err) {
       console.error('Error processing sale:', err);
-      alert('Failed to process sale');
+      alert('فشل في معالجة البيع');
     }
   };
 
   const addExpense = async () => {
     if (!activeShift || !expenseForm.amount || !expenseForm.reason) {
-      alert('Please fill in all expense fields');
+      alert('يرجى ملء جميع حقول المصروفات');
       return;
     }
 
@@ -256,7 +274,7 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
         shiftId: activeShift.id,
         section,
         timestamp: new Date(),
-        createdBy: user?.username || 'Unknown'
+        createdBy: user?.username || 'غير معروف'
       };
 
       await db_service.saveExpense(expense);
@@ -273,13 +291,13 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
       setExpenseForm({ amount: '', reason: '' });
     } catch (err) {
       console.error('Error adding expense:', err);
-      alert('Failed to add expense');
+      alert('فشل في إضافة المصروف');
     }
   };
 
   const closeShift = async () => {
     if (!activeShift || !closeShiftForm.finalCash) {
-      alert('Please enter final cash amount');
+      alert('يرجى إدخال مبلغ النقدية النهائي');
       return;
     }
 
@@ -295,7 +313,7 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
         finalCash,
         closeReason: closeShiftForm.closeReason || undefined,
         validationStatus: Math.abs(discrepancy) < 0.01 ? 'balanced' : 'discrepancy',
-        discrepancies: Math.abs(discrepancy) >= 0.01 ? [`Cash discrepancy: ${discrepancy.toFixed(2)} EGP`] : []
+        discrepancies: Math.abs(discrepancy) >= 0.01 ? [`تناقض في النقدية: ${discrepancy.toFixed(2)} جنيه`] : []
       };
 
       await db_service.saveShift(updatedShift);
@@ -304,13 +322,13 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
       setCloseShiftForm({ finalCash: '', closeReason: '' });
     } catch (err) {
       console.error('Error closing shift:', err);
-      alert('Failed to close shift');
+      alert('فشل في إغلاق الوردية');
     }
   };
 
   const addCustomer = async () => {
     if (!customerForm.name) {
-      alert('Please enter customer name');
+      alert('يرجى إدخال اسم العميل');
       return;
     }
 
@@ -328,7 +346,7 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
       loadCustomers();
     } catch (err) {
       console.error('Error adding customer:', err);
-      alert('Failed to add customer');
+      alert('فشل في إضافة العميل');
     }
   };
 
@@ -343,9 +361,34 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
       loadUnpaidPurchases();
     } catch (err) {
       console.error('Error marking purchase as paid:', err);
-      alert('Failed to mark purchase as paid');
+      alert('فشل في تحديد المشتريات كمدفوعة');
     }
   };
+
+  const handleCalculatorInput = (value: string) => {
+    if (value === 'C') {
+      setCalculatorValue('0');
+    } else if (value === '=') {
+      try {
+        const result = eval(calculatorValue);
+        setCalculatorValue(result.toString());
+      } catch {
+        setCalculatorValue('خطأ');
+      }
+    } else if (calculatorValue === '0' && !isNaN(Number(value))) {
+      setCalculatorValue(value);
+    } else {
+      setCalculatorValue(calculatorValue + value);
+    }
+  };
+
+  const filteredItems = items.filter(item => {
+    const matchesSearch = item.name.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesCategory = !selectedCategory || item.categoryId === selectedCategory;
+    return matchesSearch && matchesCategory;
+  });
+
+  const categories = [...new Set(items.filter(item => item.categoryId).map(item => item.categoryId))];
 
   if (loading) {
     return (
@@ -366,7 +409,7 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
           onClick={loadData}
           className="mt-2 text-sm underline hover:no-underline"
         >
-          Try again
+          حاول مرة أخرى
         </button>
       </div>
     );
@@ -376,13 +419,13 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
     return (
       <div className="text-center py-12">
         <Clock className="h-16 w-16 text-gray-400 mx-auto mb-4" />
-        <h3 className="text-lg font-medium text-gray-900 mb-2">No Active Shift</h3>
-        <p className="text-gray-600 mb-6">Start a new shift to begin selling items</p>
+        <h3 className="text-lg font-medium text-gray-900 mb-2">لا توجد وردية نشطة</h3>
+        <p className="text-gray-600 mb-6">ابدأ وردية جديدة لبدء بيع المنتجات</p>
         <button
           onClick={startShift}
           className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
         >
-          Start Shift
+          بدء الوردية
         </button>
       </div>
     );
@@ -394,25 +437,58 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
       <div className="lg:col-span-2 space-y-6">
         <div className="bg-white rounded-lg shadow-sm border p-6">
           <div className="flex justify-between items-center mb-4">
-            <h3 className="text-lg font-medium">Items</h3>
+            <h3 className="text-lg font-medium">المنتجات</h3>
             <div className="flex space-x-2">
+              <button
+                onClick={() => setShowCalculatorModal(true)}
+                className="px-4 py-2 text-sm bg-purple-100 text-purple-700 rounded-lg hover:bg-purple-200 transition-colors"
+              >
+                <Calculator className="h-4 w-4 inline mr-1" />
+                آلة حاسبة
+              </button>
               <button
                 onClick={() => setShowUnpaidModal(true)}
                 className="px-4 py-2 text-sm bg-yellow-100 text-yellow-700 rounded-lg hover:bg-yellow-200 transition-colors"
               >
-                Unpaid ({unpaidPurchases.length})
+                غير مدفوع ({unpaidPurchases.length})
               </button>
               <button
                 onClick={() => setShowCustomerModal(true)}
                 className="px-4 py-2 text-sm bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
               >
-                Add Customer
+                إضافة عميل
               </button>
             </div>
           </div>
 
+          {/* Search and Filter */}
+          <div className="flex space-x-4 mb-4">
+            <input
+              type="text"
+              placeholder="البحث عن منتج..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            />
+            <select
+              value={selectedCategory}
+              onChange={(e) => setSelectedCategory(e.target.value)}
+              className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            >
+              <option value="">جميع الفئات</option>
+              {categories.map((categoryId) => {
+                const category = items.find(item => item.categoryId === categoryId);
+                return (
+                  <option key={categoryId} value={categoryId}>
+                    {category?.categoryId}
+                  </option>
+                );
+              })}
+            </select>
+          </div>
+
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-            {items.map((item) => (
+            {filteredItems.map((item) => (
               <div
                 key={item.id}
                 className={`border rounded-lg p-4 transition-all hover:shadow-md ${
@@ -428,9 +504,9 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
                   />
                 )}
                 <h4 className="font-medium text-sm mb-1">{item.name}</h4>
-                <p className="text-blue-600 font-semibold text-sm">{item.sellPrice} EGP</p>
+                <p className="text-blue-600 font-semibold text-sm">{item.sellPrice} جنيه</p>
                 <p className={`text-xs ${item.currentAmount <= 5 ? 'text-red-600' : 'text-gray-500'}`}>
-                  Stock: {item.currentAmount}
+                  المخزون: {item.currentAmount}
                 </p>
               </div>
             ))}
@@ -443,13 +519,13 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
         {/* Active Shift Info */}
         <div className="bg-white rounded-lg shadow-sm border p-6">
           <div className="flex justify-between items-center mb-4">
-            <h3 className="text-lg font-medium">Active Shift</h3>
+            <h3 className="text-lg font-medium">الوردية النشطة</h3>
             <div className="flex space-x-2">
               <button
                 onClick={() => setShowExpenseModal(true)}
                 className="px-3 py-1 text-sm bg-red-100 text-red-700 rounded-lg hover:bg-red-200 transition-colors"
               >
-                Add Expense
+                إضافة مصروف
               </button>
               <button
                 onClick={() => {
@@ -458,28 +534,28 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
                 }}
                 className="px-3 py-1 text-sm bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
               >
-                Close Shift
+                إغلاق الوردية
               </button>
             </div>
           </div>
 
           <div className="space-y-3">
             <div className="flex justify-between">
-              <span className="text-gray-600">Started:</span>
-              <span className="font-medium">{activeShift.startTime.toLocaleTimeString()}</span>
+              <span className="text-gray-600">بدأت في:</span>
+              <span className="font-medium">{activeShift.startTime.toLocaleTimeString('ar-EG')}</span>
             </div>
             <div className="flex justify-between">
-              <span className="text-gray-600">Total Sales:</span>
-              <span className="font-medium text-green-600">{activeShift.totalAmount} EGP</span>
+              <span className="text-gray-600">إجمالي المبيعات:</span>
+              <span className="font-medium text-green-600">{activeShift.totalAmount} جنيه</span>
             </div>
             <div className="flex justify-between">
-              <span className="text-gray-600">Items Sold:</span>
+              <span className="text-gray-600">المنتجات المباعة:</span>
               <span className="font-medium">{activeShift.purchases.reduce((total, p) => total + p.quantity, 0)}</span>
             </div>
             <div className="flex justify-between">
-              <span className="text-gray-600">Expenses:</span>
+              <span className="text-gray-600">المصروفات:</span>
               <span className="font-medium text-red-600">
-                {activeShift.expenses.reduce((total, e) => total + e.amount, 0)} EGP
+                {activeShift.expenses.reduce((total, e) => total + e.amount, 0)} جنيه
               </span>
             </div>
           </div>
@@ -488,13 +564,13 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
         {/* Shopping Cart */}
         <div className="bg-white rounded-lg shadow-sm border p-6">
           <div className="flex justify-between items-center mb-4">
-            <h3 className="text-lg font-medium">Cart</h3>
+            <h3 className="text-lg font-medium">سلة التسوق</h3>
             {cart.length > 0 && (
               <button
                 onClick={clearCart}
                 className="text-sm text-red-600 hover:text-red-800"
               >
-                Clear
+                مسح
               </button>
             )}
           </div>
@@ -502,7 +578,7 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
           {cart.length === 0 ? (
             <div className="text-center py-8 text-gray-500">
               <ShoppingCart className="h-12 w-12 mx-auto mb-2 opacity-50" />
-              <p>Cart is empty</p>
+              <p>السلة فارغة</p>
             </div>
           ) : (
             <div className="space-y-3">
@@ -510,7 +586,7 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
                 <div key={item.itemId} className="flex justify-between items-center">
                   <div className="flex-1">
                     <div className="font-medium text-sm">{item.name}</div>
-                    <div className="text-xs text-gray-500">{item.price} EGP each</div>
+                    <div className="text-xs text-gray-500">{item.price} جنيه للقطعة</div>
                   </div>
                   <div className="flex items-center space-x-2">
                     <button
@@ -530,22 +606,22 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
                       <Plus className="h-4 w-4" />
                     </button>
                   </div>
-                  <div className="w-16 text-right font-medium">
-                    {(item.price * item.quantity).toFixed(2)} EGP
+                  <div className="w-16 text-left font-medium">
+                    {(item.price * item.quantity).toFixed(2)} جنيه
                   </div>
                 </div>
               ))}
 
               <div className="border-t pt-3">
                 <div className="flex justify-between items-center font-semibold">
-                  <span>Total:</span>
-                  <span>{getCartTotal().toFixed(2)} EGP</span>
+                  <span>الإجمالي:</span>
+                  <span>{getCartTotal().toFixed(2)} جنيه</span>
                 </div>
               </div>
 
               {/* Customer Selection */}
               <div className="border-t pt-3">
-                <label className="block text-sm font-medium text-gray-700 mb-2">Customer (Optional)</label>
+                <label className="block text-sm font-medium text-gray-700 mb-2">العميل (اختياري)</label>
                 <select
                   value={selectedCustomer?.id || ''}
                   onChange={(e) => {
@@ -554,7 +630,7 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
                   }}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
                 >
-                  <option value="">Select Customer</option>
+                  <option value="">اختر عميل</option>
                   {customers.map((customer) => (
                     <option key={customer.id} value={customer.id}>
                       {customer.name}
@@ -569,14 +645,14 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
                   onClick={() => processSale(true)}
                   className="w-full px-4 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-medium"
                 >
-                  Complete Sale (Paid)
+                  إتمام البيع (مدفوع)
                 </button>
                 {selectedCustomer && (
                   <button
                     onClick={() => processSale(false)}
                     className="w-full px-4 py-3 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 transition-colors font-medium"
                   >
-                    Record as Debt
+                    تسجيل كدين
                   </button>
                 )}
               </div>
@@ -585,14 +661,109 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
         </div>
       </div>
 
+      {/* All modals with Arabic translations... */}
+      {/* Calculator Modal */}
+      {showCalculatorModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-sm">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-medium">آلة حاسبة</h3>
+              <button
+                onClick={() => setShowCalculatorModal(false)}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                ×
+              </button>
+            </div>
+            
+            <div className="bg-gray-100 p-4 rounded-lg mb-4">
+              <div className="text-right text-xl font-mono">{calculatorValue}</div>
+            </div>
+            
+            <div className="grid grid-cols-4 gap-2">
+              {['C', '/', '*', '-', '7', '8', '9', '+', '4', '5', '6', '+', '1', '2', '3', '=', '0', '0', '.', '='].map((btn, index) => (
+                <button
+                  key={index}
+                  onClick={() => handleCalculatorInput(btn)}
+                  className={`p-3 rounded-lg font-medium ${
+                    ['C', '/', '*', '-', '+', '='].includes(btn)
+                      ? 'bg-blue-100 text-blue-700 hover:bg-blue-200'
+                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                  } transition-colors`}
+                >
+                  {btn}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Receipt Modal */}
+      {showReceiptModal && lastSaleReceipt && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-md">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-medium">إيصال البيع</h3>
+              <button
+                onClick={() => setShowReceiptModal(false)}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                ×
+              </button>
+            </div>
+            
+            <div className="border-2 border-dashed border-gray-300 p-4 space-y-2">
+              <div className="text-center font-bold">AIR BAR</div>
+              <div className="text-center text-sm text-gray-600">
+                {section === 'store' ? 'البار' : 'المكملات الغذائية'}
+              </div>
+              <div className="border-t border-gray-300 pt-2">
+                <div className="text-sm text-gray-600">
+                  التاريخ: {lastSaleReceipt.timestamp.toLocaleString('ar-EG')}
+                </div>
+                {lastSaleReceipt.customer && (
+                  <div className="text-sm text-gray-600">
+                    العميل: {lastSaleReceipt.customer.name}
+                  </div>
+                )}
+              </div>
+              
+              <div className="border-t border-gray-300 pt-2">
+                {lastSaleReceipt.items.map((item: any, index: number) => (
+                  <div key={index} className="flex justify-between text-sm">
+                    <span>{item.name} x{item.quantity}</span>
+                    <span>{(item.price * item.quantity).toFixed(2)} جنيه</span>
+                  </div>
+                ))}
+              </div>
+              
+              <div className="border-t border-gray-300 pt-2">
+                <div className="flex justify-between font-bold">
+                  <span>الإجمالي:</span>
+                  <span>{lastSaleReceipt.total.toFixed(2)} جنيه</span>
+                </div>
+                <div className="text-sm text-gray-600">
+                  الحالة: {lastSaleReceipt.isPaid ? 'مدفوع' : 'دين'}
+                </div>
+              </div>
+              
+              <div className="text-center text-xs text-gray-500 pt-2">
+                شكراً لزيارتكم
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Expense Modal */}
       {showExpenseModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg p-6 w-full max-w-md">
-            <h3 className="text-lg font-medium mb-4">Add Expense</h3>
+            <h3 className="text-lg font-medium mb-4">إضافة مصروف</h3>
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Amount (EGP)</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">المبلغ (جنيه)</label>
                 <input
                   type="number"
                   value={expenseForm.amount}
@@ -601,7 +772,7 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Reason</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">السبب</label>
                 <input
                   type="text"
                   value={expenseForm.reason}
@@ -618,13 +789,13 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
                 }}
                 className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
               >
-                Cancel
+                إلغاء
               </button>
               <button
                 onClick={addExpense}
                 className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
               >
-                Add Expense
+                إضافة مصروف
               </button>
             </div>
           </div>
@@ -635,10 +806,10 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
       {showCloseShiftModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg p-6 w-full max-w-md">
-            <h3 className="text-lg font-medium mb-4">Close Shift</h3>
+            <h3 className="text-lg font-medium mb-4">إغلاق الوردية</h3>
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Final Cash Amount (EGP)</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">مبلغ النقدية النهائي (جنيه)</label>
                 <input
                   type="number"
                   value={closeShiftForm.finalCash}
@@ -647,7 +818,7 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Close Reason (Optional)</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">سبب الإغلاق (اختياري)</label>
                 <textarea
                   value={closeShiftForm.closeReason}
                   onChange={(e) => setCloseShiftForm({ ...closeShiftForm, closeReason: e.target.value })}
@@ -657,11 +828,11 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
               </div>
               <div className="bg-gray-50 p-3 rounded-lg">
                 <div className="text-sm text-gray-600">
-                  Expected Cash: {(activeShift?.totalAmount || 0) - (activeShift?.expenses.reduce((total, e) => total + e.amount, 0) || 0)} EGP
+                  النقدية المتوقعة: {(activeShift?.totalAmount || 0) - (activeShift?.expenses.reduce((total, e) => total + e.amount, 0) || 0)} جنيه
                 </div>
                 {closeShiftForm.finalCash && (
                   <div className="text-sm text-gray-600">
-                    Discrepancy: {(parseFloat(closeShiftForm.finalCash) - ((activeShift?.totalAmount || 0) - (activeShift?.expenses.reduce((total, e) => total + e.amount, 0) || 0))).toFixed(2)} EGP
+                    التناقض: {(parseFloat(closeShiftForm.finalCash) - ((activeShift?.totalAmount || 0) - (activeShift?.expenses.reduce((total, e) => total + e.amount, 0) || 0))).toFixed(2)} جنيه
                   </div>
                 )}
               </div>
@@ -674,13 +845,13 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
                 }}
                 className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
               >
-                Cancel
+                إلغاء
               </button>
               <button
                 onClick={closeShift}
                 className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
               >
-                Close Shift
+                إغلاق الوردية
               </button>
             </div>
           </div>
@@ -691,10 +862,10 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
       {showCustomerModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg p-6 w-full max-w-md">
-            <h3 className="text-lg font-medium mb-4">Add New Customer</h3>
+            <h3 className="text-lg font-medium mb-4">إضافة عميل جديد</h3>
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Customer Name</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">اسم العميل</label>
                 <input
                   type="text"
                   value={customerForm.name}
@@ -711,13 +882,13 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
                 }}
                 className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
               >
-                Cancel
+                إلغاء
               </button>
               <button
                 onClick={addCustomer}
                 className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
               >
-                Add Customer
+                إضافة عميل
               </button>
             </div>
           </div>
@@ -729,7 +900,7 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg p-6 w-full max-w-2xl max-h-[80vh] overflow-y-auto">
             <div className="flex justify-between items-center mb-4">
-              <h3 className="text-lg font-medium">Unpaid Customer Purchases</h3>
+              <h3 className="text-lg font-medium">مشتريات العملاء غير المدفوعة</h3>
               <button
                 onClick={() => setShowUnpaidModal(false)}
                 className="text-gray-400 hover:text-gray-600"
@@ -741,7 +912,7 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
             {unpaidPurchases.length === 0 ? (
               <div className="text-center py-8 text-gray-500">
                 <CheckCircle className="h-12 w-12 mx-auto mb-2 opacity-50" />
-                <p>No unpaid purchases</p>
+                <p>لا توجد مشتريات غير مدفوعة</p>
               </div>
             ) : (
               <div className="space-y-4">
@@ -751,21 +922,21 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
                       <div>
                         <div className="font-medium">{purchase.customerName}</div>
                         <div className="text-sm text-gray-500">
-                          {purchase.timestamp.toLocaleString()}
+                          {purchase.timestamp.toLocaleString('ar-EG')}
                         </div>
                       </div>
-                      <div className="text-right">
-                        <div className="font-semibold text-red-600">{purchase.totalAmount} EGP</div>
+                      <div className="text-left">
+                        <div className="font-semibold text-red-600">{purchase.totalAmount} جنيه</div>
                         <button
                           onClick={() => markPurchaseAsPaid(purchase)}
                           className="text-sm bg-green-100 text-green-700 px-2 py-1 rounded hover:bg-green-200 transition-colors"
                         >
-                          Mark as Paid
+                          تحديد كمدفوع
                         </button>
                       </div>
                     </div>
                     <div className="text-sm text-gray-600">
-                      Items: {purchase.items.map(item => `${item.name} (${item.quantity})`).join(', ')}
+                      المنتجات: {purchase.items.map(item => `${item.name} (${item.quantity})`).join(', ')}
                     </div>
                   </div>
                 ))}

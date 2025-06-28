@@ -14,12 +14,12 @@ const RealtimeStatus: React.FC = () => {
       {isConnected ? (
         <>
           <Wifi className="h-3 w-3" />
-          <span>Live</span>
+          <span>متصل</span>
         </>
       ) : (
         <>
           <WifiOff className="h-3 w-3" />
-          <span>Offline</span>
+          <span>غير متصل</span>
         </>
       )}
     </div>

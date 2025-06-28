@@ -18,12 +18,12 @@ const LoginForm: React.FC = () => {
     
     // Validate inputs
     if (!username.trim()) {
-      setError('Please enter your username');
+      setError('يرجى إدخال اسم المستخدم');
       return;
     }
     
     if (!password.trim()) {
-      setError('Please enter your password');
+      setError('يرجى إدخال كلمة المرور');
       return;
     }
 
@@ -32,11 +32,11 @@ const LoginForm: React.FC = () => {
     try {
       const success = await login(username.trim(), password);
       if (!success) {
-        setError('Invalid username or password. Please try again.');
+        setError('اسم المستخدم أو كلمة المرور غير صحيحة. يرجى المحاولة مرة أخرى.');
       }
     } catch (err) {
       console.error('Login error:', err);
-      setError('Login failed. Please check your connection and try again.');
+      setError('فشل في تسجيل الدخول. يرجى التحقق من الاتصال والمحاولة مرة أخرى.');
     } finally {
       setIsLoading(false);
     }
@@ -50,7 +50,7 @@ const LoginForm: React.FC = () => {
             <LogIn className="h-8 w-8 text-blue-600" />
           </div>
           <h1 className="text-2xl font-bold text-gray-900 mb-2">AIR BAR</h1>
-          <p className="text-gray-600">تـسجيل الـدخول </p>
+          <p className="text-gray-600">تسجيل الدخول</p>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-6">
@@ -126,7 +126,7 @@ const LoginForm: React.FC = () => {
 
         <div className="mt-6 text-center">
           <p className="text-xs text-gray-500">
-            AirGYM bar System if you have found it by mistake you can fuckoff :)
+            نظام إدارة AIR GYM BAR - إذا و جدت هذا بالخطأ يمكنك الذهاب :)
           </p>
         </div>
       </div>
