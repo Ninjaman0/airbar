@@ -9,6 +9,7 @@ interface AuthContextType {
   login: (username: string, password: string) => Promise<boolean>;
   logout: () => void;
   isLoading: boolean;
+  isOfflineMode: boolean;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -67,14 +68,25 @@ const FIXED_USERS: User[] = [
 export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isOfflineMode, setIsOfflineMode] = useState(false);
 
   useEffect(() => {
     const initAuth = async () => {
       try {
         console.log('Initializing authentication...');
         
-        // Initialize database service
-        await db_service.init();
+        // Initialize database service with error handling
+        try {
+          await db_service.init();
+          setIsOfflineMode(!db_service.isOnline());
+          
+          if (!db_service.isOnline()) {
+            console.log('Running in offline mode - database connection unavailable');
+          }
+        } catch (error) {
+          console.warn('Database initialization failed, continuing in offline mode:', error);
+          setIsOfflineMode(true);
+        }
         
         // Check for stored user session
         const storedUser = localStorage.getItem('currentUser');
@@ -84,7 +96,13 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
             console.log('Found stored user:', parsedUser.username);
             
             // Verify user exists in database or fixed users list
-            let dbUser = await db_service.getUserByUsername(parsedUser.username);
+            let dbUser: User | null = null;
+            
+            try {
+              dbUser = await db_service.getUserByUsername(parsedUser.username);
+            } catch (error) {
+              console.warn('Failed to verify user in database:', error);
+            }
             
             if (!dbUser) {
               // Check fixed users and create in database if needed
@@ -95,8 +113,13 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
               );
               
               if (fixedUser) {
-                await db_service.createUser(fixedUser);
-                dbUser = fixedUser;
+                try {
+                  await db_service.createUser(fixedUser);
+                  dbUser = fixedUser;
+                } catch (error) {
+                  console.warn('Failed to create user in database, using fixed user:', error);
+                  dbUser = fixedUser;
+                }
               }
             }
             
@@ -120,6 +143,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         console.log('Authentication initialization complete');
       } catch (error) {
         console.error('Failed to initialize auth:', error);
+        setIsOfflineMode(true);
       } finally {
         setIsLoading(false);
       }
@@ -137,7 +161,13 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     try {
       console.log('Checking for default items...');
       
-      const storeItems = await db_service.getItemsBySection('store');
+      let storeItems: any[] = [];
+      try {
+        storeItems = await db_service.getItemsBySection('store');
+      } catch (error) {
+        console.warn('Failed to get store items:', error);
+      }
+      
       if (storeItems.length === 0) {
         console.log('Creating default store items...');
         const defaultStoreItems = [
@@ -174,12 +204,22 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         ];
 
         for (const item of defaultStoreItems) {
-          await db_service.saveItem(item);
+          try {
+            await db_service.saveItem(item);
+          } catch (error) {
+            console.warn('Failed to save default store item:', error);
+          }
         }
         console.log('Default store items created');
       }
 
-      const supplementItems = await db_service.getItemsBySection('supplement');
+      let supplementItems: any[] = [];
+      try {
+        supplementItems = await db_service.getItemsBySection('supplement');
+      } catch (error) {
+        console.warn('Failed to get supplement items:', error);
+      }
+      
       if (supplementItems.length === 0) {
         console.log('Creating default supplement items...');
         const defaultSupplementItems = [
@@ -206,7 +246,11 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         ];
 
         for (const item of defaultSupplementItems) {
-          await db_service.saveItem(item);
+          try {
+            await db_service.saveItem(item);
+          } catch (error) {
+            console.warn('Failed to save default supplement item:', error);
+          }
         }
         console.log('Default supplement items created');
       }
@@ -225,7 +269,12 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       console.log('Attempting login for user:', username);
       
       // Check database first
-      let dbUser = await db_service.getUserByUsername(username.trim());
+      let dbUser: User | null = null;
+      try {
+        dbUser = await db_service.getUserByUsername(username.trim());
+      } catch (error) {
+        console.warn('Failed to check user in database:', error);
+      }
       
       if (!dbUser) {
         // Check against fixed users list and create in database
@@ -234,8 +283,13 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         );
         
         if (fixedUser) {
-          await db_service.createUser(fixedUser);
-          dbUser = fixedUser;
+          try {
+            await db_service.createUser(fixedUser);
+            dbUser = fixedUser;
+          } catch (error) {
+            console.warn('Failed to create user in database, using fixed user:', error);
+            dbUser = fixedUser;
+          }
         }
       }
       
@@ -272,7 +326,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   };
 
   return (
-    <AuthContext.Provider value={{ user, login, logout, isLoading }}>
+    <AuthContext.Provider value={{ user, login, logout, isLoading, isOfflineMode }}>
       {children}
     </AuthContext.Provider>
   );
