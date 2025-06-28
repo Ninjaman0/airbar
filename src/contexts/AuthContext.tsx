@@ -72,6 +72,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     const initAuth = async () => {
       try {
         console.log('Initializing authentication...');
+        
+        // Initialize database service
         await db_service.init();
         
         // Check for stored user session
@@ -133,8 +135,11 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
   const initializeDefaultItems = async () => {
     try {
+      console.log('Checking for default items...');
+      
       const storeItems = await db_service.getItemsBySection('store');
       if (storeItems.length === 0) {
+        console.log('Creating default store items...');
         const defaultStoreItems = [
           {
             id: uuidv4(),
@@ -176,6 +181,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
       const supplementItems = await db_service.getItemsBySection('supplement');
       if (supplementItems.length === 0) {
+        console.log('Creating default supplement items...');
         const defaultSupplementItems = [
           {
             id: uuidv4(),

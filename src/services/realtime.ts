@@ -23,6 +23,7 @@ class RealtimeService {
 
   connect(user: User) {
     this.user = user;
+    console.log('Connecting real-time services for user:', user.username);
     
     // Setup Supabase real-time subscriptions
     this.setupSupabaseRealtime();
@@ -32,44 +33,55 @@ class RealtimeService {
   }
 
   private setupSupabaseRealtime() {
-    // Subscribe to all table changes
-    const tables = ['items', 'shifts', 'customers', 'customer_purchases', 'expenses', 'supplies', 'categories', 'admin_logs'];
-    
-    tables.forEach(table => {
-      const subscription = supabase
-        .channel(`public:${table}`)
-        .on('postgres_changes', 
-          { 
-            event: '*', 
-            schema: 'public', 
-            table: table 
-          }, 
-          (payload) => {
-            console.log(`Supabase real-time update for ${table}:`, payload);
-            
-            // Convert Supabase payload to our RealtimeEvent format
-            const event: RealtimeEvent = {
-              type: this.getEventTypeFromTable(table),
-              data: {
-                type: payload.eventType,
-                table: table,
-                record: payload.new || payload.old,
-                old_record: payload.old
-              },
-              timestamp: Date.now(),
-              userId: this.user?.id,
-            };
+    try {
+      // Subscribe to all table changes
+      const tables = ['items', 'shifts', 'customers', 'customer_purchases', 'expenses', 'supplies', 'categories', 'admin_logs', 'users'];
+      
+      tables.forEach(table => {
+        const channel = supabase.channel(`public:${table}`)
+          .on('postgres_changes', 
+            { 
+              event: '*', 
+              schema: 'public', 
+              table: table 
+            }, 
+            (payload) => {
+              console.log(`Supabase real-time update for ${table}:`, payload);
+              
+              // Convert Supabase payload to our RealtimeEvent format
+              const event: RealtimeEvent = {
+                type: this.getEventTypeFromTable(table),
+                data: {
+                  type: payload.eventType,
+                  table: table,
+                  record: payload.new || payload.old,
+                  old_record: payload.old
+                },
+                timestamp: Date.now(),
+                userId: this.user?.id,
+              };
 
-            // Broadcast to all callbacks
-            this.callbacks.forEach(callback => callback(event));
-          }
-        )
-        .subscribe();
+              // Broadcast to all callbacks
+              this.callbacks.forEach(callback => {
+                try {
+                  callback(event);
+                } catch (error) {
+                  console.error('Error in real-time callback:', error);
+                }
+              });
+            }
+          )
+          .subscribe((status) => {
+            console.log(`Supabase subscription status for ${table}:`, status);
+          });
 
-      this.supabaseSubscriptions.push(subscription);
-    });
+        this.supabaseSubscriptions.push(channel);
+      });
 
-    console.log('Supabase real-time subscriptions established');
+      console.log('Supabase real-time subscriptions established');
+    } catch (error) {
+      console.error('Error setting up Supabase real-time:', error);
+    }
   }
 
   private getEventTypeFromTable(table: string): RealtimeEvent['type'] {
@@ -77,6 +89,7 @@ class RealtimeService {
       case 'items':
       case 'categories':
       case 'admin_logs':
+      case 'users':
         return 'ITEM_UPDATED';
       case 'shifts':
         return 'SHIFT_UPDATED';
@@ -120,7 +133,13 @@ class RealtimeService {
       this.ws.onmessage = (event) => {
         try {
           const realtimeEvent: RealtimeEvent = JSON.parse(event.data);
-          this.callbacks.forEach(callback => callback(realtimeEvent));
+          this.callbacks.forEach(callback => {
+            try {
+              callback(realtimeEvent);
+            } catch (error) {
+              console.error('Error in WebSocket callback:', error);
+            }
+          });
         } catch (error) {
           console.error('Failed to parse WebSocket message:', error);
         }
@@ -153,7 +172,7 @@ class RealtimeService {
     this.reconnectAttempts++;
     const delay = this.reconnectDelay * Math.pow(2, this.reconnectAttempts - 1);
     
-    console.log(`Attempting to reconnect in ${delay}ms (attempt ${this.reconnectAttempts})`);
+    console.log(`Attempting to reconnect WebSocket in ${delay}ms (attempt ${this.reconnectAttempts})`);
     
     setTimeout(() => {
       if (this.user) {
@@ -163,22 +182,32 @@ class RealtimeService {
   }
 
   disconnect() {
+    console.log('Disconnecting real-time services');
+    
     // Unsubscribe from Supabase channels
-    this.supabaseSubscriptions.forEach(subscription => {
-      supabase.removeChannel(subscription);
+    this.supabaseSubscriptions.forEach(channel => {
+      try {
+        supabase.removeChannel(channel);
+      } catch (error) {
+        console.error('Error removing Supabase channel:', error);
+      }
     });
     this.supabaseSubscriptions = [];
 
     // Close WebSocket connection
     if (this.ws) {
-      this.send({
-        type: 'USER_LEFT',
-        data: { user: this.user },
-        timestamp: Date.now(),
-        userId: this.user?.id
-      });
-      
-      this.ws.close();
+      try {
+        this.send({
+          type: 'USER_LEFT',
+          data: { user: this.user },
+          timestamp: Date.now(),
+          userId: this.user?.id
+        });
+        
+        this.ws.close();
+      } catch (error) {
+        console.error('Error closing WebSocket:', error);
+      }
       this.ws = null;
     }
     
@@ -194,7 +223,11 @@ class RealtimeService {
 
   send(event: RealtimeEvent) {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-      this.ws.send(JSON.stringify(event));
+      try {
+        this.ws.send(JSON.stringify(event));
+      } catch (error) {
+        console.error('Error sending WebSocket message:', error);
+      }
     }
   }
 
@@ -211,12 +244,19 @@ class RealtimeService {
     this.send(event);
     
     // Also trigger local callbacks for immediate UI updates
-    this.callbacks.forEach(callback => callback(event));
+    this.callbacks.forEach(callback => {
+      try {
+        callback(event);
+      } catch (error) {
+        console.error('Error in broadcast callback:', error);
+      }
+    });
   }
 
   isConnected(): boolean {
-    return (this.ws !== null && this.ws.readyState === WebSocket.OPEN) || 
-           this.supabaseSubscriptions.length > 0;
+    const wsConnected = this.ws !== null && this.ws.readyState === WebSocket.OPEN;
+    const supabaseConnected = this.supabaseSubscriptions.length > 0;
+    return wsConnected || supabaseConnected;
   }
 }
 
