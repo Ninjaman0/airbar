@@ -46,13 +46,14 @@ class DatabaseService {
       .from('users')
       .select('*')
       .eq('username', username)
-      .single();
+      .maybeSingle();
 
     if (error) {
-      if (error.code === 'PGRST116') return null; // No rows returned
       console.error('Error fetching user:', error);
       return null;
     }
+
+    if (!data) return null;
 
     return {
       id: data.id,
