@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import { v4 as uuidv4 } from 'uuid';
 import { User } from '../types';
 import { db_service } from '../services/database';
 import { realtimeService } from '../services/realtime';
@@ -136,7 +137,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       if (storeItems.length === 0) {
         const defaultStoreItems = [
           {
-            id: 'store-water',
+            id: uuidv4(),
             name: 'Bottle of Water',
             sellPrice: 10,
             costPrice: 7,
@@ -146,7 +147,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
             updatedAt: new Date()
           },
           {
-            id: 'store-pepsi',
+            id: uuidv4(),
             name: 'Pepsi',
             sellPrice: 15,
             costPrice: 10,
@@ -156,7 +157,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
             updatedAt: new Date()
           },
           {
-            id: 'store-redbull',
+            id: uuidv4(),
             name: 'Red Bull',
             sellPrice: 25,
             costPrice: 18,
@@ -177,7 +178,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       if (supplementItems.length === 0) {
         const defaultSupplementItems = [
           {
-            id: 'supp-protein',
+            id: uuidv4(),
             name: 'Protein Powder',
             sellPrice: 800,
             costPrice: 600,
@@ -187,7 +188,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
             updatedAt: new Date()
           },
           {
-            id: 'supp-creatine',
+            id: uuidv4(),
             name: 'Creatine',
             sellPrice: 300,
             costPrice: 200,
