@@ -1,3 +1,4 @@
+import { supabase } from '../lib/supabase';
 import { User } from '../types';
 
 export type RealtimeEvent = {
@@ -18,13 +19,84 @@ class RealtimeService {
   private reconnectDelay = 1000;
   private isConnecting = false;
   private user: User | null = null;
+  private supabaseSubscriptions: any[] = [];
 
   connect(user: User) {
+    this.user = user;
+    
+    // Setup Supabase real-time subscriptions
+    this.setupSupabaseRealtime();
+    
+    // Also connect to WebSocket for additional real-time features
+    this.connectWebSocket();
+  }
+
+  private setupSupabaseRealtime() {
+    // Subscribe to all table changes
+    const tables = ['items', 'shifts', 'customers', 'customer_purchases', 'expenses', 'supplies', 'categories', 'admin_logs'];
+    
+    tables.forEach(table => {
+      const subscription = supabase
+        .channel(`public:${table}`)
+        .on('postgres_changes', 
+          { 
+            event: '*', 
+            schema: 'public', 
+            table: table 
+          }, 
+          (payload) => {
+            console.log(`Supabase real-time update for ${table}:`, payload);
+            
+            // Convert Supabase payload to our RealtimeEvent format
+            const event: RealtimeEvent = {
+              type: this.getEventTypeFromTable(table),
+              data: {
+                type: payload.eventType,
+                table: table,
+                record: payload.new || payload.old,
+                old_record: payload.old
+              },
+              timestamp: Date.now(),
+              userId: this.user?.id,
+            };
+
+            // Broadcast to all callbacks
+            this.callbacks.forEach(callback => callback(event));
+          }
+        )
+        .subscribe();
+
+      this.supabaseSubscriptions.push(subscription);
+    });
+
+    console.log('Supabase real-time subscriptions established');
+  }
+
+  private getEventTypeFromTable(table: string): RealtimeEvent['type'] {
+    switch (table) {
+      case 'items':
+      case 'categories':
+      case 'admin_logs':
+        return 'ITEM_UPDATED';
+      case 'shifts':
+        return 'SHIFT_UPDATED';
+      case 'customers':
+      case 'customer_purchases':
+        return 'CUSTOMER_UPDATED';
+      case 'expenses':
+        return 'EXPENSE_ADDED';
+      case 'supplies':
+        return 'SUPPLY_ADDED';
+      default:
+        return 'ITEM_UPDATED';
+    }
+  }
+
+  private connectWebSocket() {
     if (this.isConnecting || (this.ws && this.ws.readyState === WebSocket.OPEN)) {
       return;
     }
 
-    this.user = user;
     this.isConnecting = true;
 
     try {
@@ -85,12 +157,19 @@ class RealtimeService {
     
     setTimeout(() => {
       if (this.user) {
-        this.connect(this.user);
+        this.connectWebSocket();
       }
     }, delay);
   }
 
   disconnect() {
+    // Unsubscribe from Supabase channels
+    this.supabaseSubscriptions.forEach(subscription => {
+      supabase.removeChannel(subscription);
+    });
+    this.supabaseSubscriptions = [];
+
+    // Close WebSocket connection
     if (this.ws) {
       this.send({
         type: 'USER_LEFT',
@@ -102,8 +181,10 @@ class RealtimeService {
       this.ws.close();
       this.ws = null;
     }
+    
     this.user = null;
     this.callbacks.clear();
+    console.log('Real-time connections disconnected');
   }
 
   subscribe(callback: RealtimeCallback) {
@@ -118,17 +199,24 @@ class RealtimeService {
   }
 
   broadcast(type: RealtimeEvent['type'], data: any, section?: 'store' | 'supplement') {
-    this.send({
+    const event: RealtimeEvent = {
       type,
       data,
       timestamp: Date.now(),
       userId: this.user?.id,
       section
-    });
+    };
+
+    // Send via WebSocket
+    this.send(event);
+    
+    // Also trigger local callbacks for immediate UI updates
+    this.callbacks.forEach(callback => callback(event));
   }
 
   isConnected(): boolean {
-    return this.ws !== null && this.ws.readyState === WebSocket.OPEN;
+    return (this.ws !== null && this.ws.readyState === WebSocket.OPEN) || 
+           this.supabaseSubscriptions.length > 0;
   }
 }
 
