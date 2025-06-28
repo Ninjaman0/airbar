@@ -126,7 +126,7 @@ const LoginForm: React.FC = () => {
 
         <div className="mt-6 text-center">
           <p className="text-xs text-gray-500">
-            نظام إدارة AIR GYM BAR - إذا و جدت هذا بالخطأ يمكنك الذهاب :)
+            Air gym bar system stay away!
           </p>
         </div>
       </div>
