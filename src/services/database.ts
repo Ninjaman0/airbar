@@ -1105,7 +1105,7 @@ class DatabaseService {
   // Supplement debt transaction operations
   async saveSupplementDebtTransaction(transaction: SupplementDebtTransaction): Promise<void> {
     try {
-      const { error } = await supabase.from('supplement_debt_transactions').insert({
+      const { error } = await supabase.from('supplement_debt_transactions').upsert({
         id: transaction.id,
         type: transaction.type,
         amount: transaction.amount.toString(),
@@ -1141,6 +1141,21 @@ class DatabaseService {
     } catch (error) {
       this.handleError(error, 'getSupplementDebtTransactions');
       return [];
+    }
+  }
+
+  // Delete supplement debt transaction
+  async deleteSupplementDebtTransaction(id: string): Promise<void> {
+    try {
+      const { error } = await supabase
+        .from('supplement_debt_transactions')
+        .delete()
+        .eq('id', id);
+      
+      if (error) throw error;
+      this.broadcastUpdate('DEBT_UPDATED', { type: 'supplement_debt_transaction_deleted', id }, 'supplement');
+    } catch (error) {
+      this.handleError(error, 'deleteSupplementDebtTransaction');
     }
   }
 
