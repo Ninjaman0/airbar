@@ -163,15 +163,17 @@ class DatabaseService {
 
       await this.saveMonthlyArchive(archive);
 
-      // Delete all shifts for this section
-      const { error: deleteShiftsError } = await supabase
-        .from('shifts')
+      // Delete records in the correct order to respect foreign key constraints
+      
+      // 1. Delete customer purchases first (they reference shifts)
+      const { error: deletePurchasesError } = await supabase
+        .from('customer_purchases')
         .delete()
         .eq('section', section);
 
-      if (deleteShiftsError) throw deleteShiftsError;
+      if (deletePurchasesError) throw deletePurchasesError;
 
-      // Delete related expenses
+      // 2. Delete expenses (they reference shifts)
       const { error: deleteExpensesError } = await supabase
         .from('expenses')
         .delete()
@@ -179,7 +181,7 @@ class DatabaseService {
 
       if (deleteExpensesError) throw deleteExpensesError;
 
-      // Delete related external money
+      // 3. Delete external money (they reference shifts)
       const { error: deleteExternalError } = await supabase
         .from('external_money')
         .delete()
@@ -187,13 +189,13 @@ class DatabaseService {
 
       if (deleteExternalError) throw deleteExternalError;
 
-      // Delete customer purchases for this section
-      const { error: deletePurchasesError } = await supabase
-        .from('customer_purchases')
+      // 4. Finally delete shifts (now that all references are removed)
+      const { error: deleteShiftsError } = await supabase
+        .from('shifts')
         .delete()
         .eq('section', section);
 
-      if (deletePurchasesError) throw deletePurchasesError;
+      if (deleteShiftsError) throw deleteShiftsError;
 
       // Log the reset action
       const log: AdminLog = {
