@@ -1168,7 +1168,7 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
                       <div>
                         <div className="font-medium">{item.name}</div>
                         <div className="text-xs text-gray-500">
-                          الحالي: {item.currentAmount}
+                          .
                         </div>
                       </div>
                       <input
