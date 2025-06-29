@@ -33,7 +33,7 @@ class DatabaseService {
   // Helper function to handle Supabase errors
   private handleError(error: any, operation: string) {
     console.error(`Error in ${operation}:`, error);
-    if (error.code === 'PGRST116') {
+    if (error?.code === 'PGRST116') {
       return null; // No rows found
     }
     throw error;
@@ -83,7 +83,7 @@ class DatabaseService {
 
       if (error) throw error;
 
-      return data.map(archive => ({
+      return (data || []).map(archive => ({
         id: archive.id,
         month: archive.month,
         year: archive.year,
@@ -267,7 +267,7 @@ class DatabaseService {
       
       if (error) throw error;
 
-      return data.map(user => ({
+      return (data || []).map(user => ({
         id: user.id,
         username: user.username,
         password: user.password,
@@ -340,7 +340,7 @@ class DatabaseService {
 
       if (error) throw error;
 
-      return data.map(log => ({
+      return (data || []).map(log => ({
         id: log.id,
         actionType: log.action_type,
         itemOrShiftAffected: log.item_or_shift_affected,
@@ -381,7 +381,7 @@ class DatabaseService {
 
       if (error) throw error;
 
-      return data.map(category => ({
+      return (data || []).map(category => ({
         id: category.id,
         name: category.name,
         section: category.section,
@@ -445,7 +445,7 @@ class DatabaseService {
 
       if (error) throw error;
 
-      return data.map(item => ({
+      return (data || []).map(item => ({
         id: item.id,
         name: item.name,
         sellPrice: parseFloat(item.sell_price),
@@ -537,7 +537,7 @@ class DatabaseService {
 
       if (error) throw error;
 
-      return data.map(customer => ({
+      return (data || []).map(customer => ({
         id: customer.id,
         name: customer.name,
         section: customer.section,
@@ -600,7 +600,7 @@ class DatabaseService {
 
       if (error) throw error;
 
-      return data.map(purchase => ({
+      return (data || []).map(purchase => ({
         id: purchase.id,
         customerId: purchase.customer_id,
         customerName: purchase.customer_name,
@@ -627,7 +627,7 @@ class DatabaseService {
 
       if (error) throw error;
 
-      return data.map(purchase => ({
+      return (data || []).map(purchase => ({
         id: purchase.id,
         customerId: purchase.customer_id,
         customerName: purchase.customer_name,
@@ -713,7 +713,7 @@ class DatabaseService {
 
       if (error) throw error;
 
-      return data.map(expense => ({
+      return (data || []).map(expense => ({
         id: expense.id,
         amount: parseFloat(expense.amount),
         reason: expense.reason,
@@ -777,7 +777,7 @@ class DatabaseService {
 
       if (error) throw error;
 
-      return data.map(money => ({
+      return (data || []).map(money => ({
         id: money.id,
         amount: parseFloat(money.amount),
         reason: money.reason,
@@ -845,7 +845,7 @@ class DatabaseService {
 
       if (error) throw error;
 
-      return data.map(edit => ({
+      return (data || []).map(edit => ({
         id: edit.id,
         shiftId: edit.shift_id,
         field: edit.field,
@@ -977,7 +977,7 @@ class DatabaseService {
 
       if (error) throw error;
 
-      const shifts = await Promise.all(data.map(async (shift) => {
+      const shifts = await Promise.all((data || []).map(async (shift) => {
         const expenses = await this.getExpensesByShift(shift.id);
         const externalMoney = await this.getExternalMoneyByShift(shift.id);
 
@@ -1052,7 +1052,7 @@ class DatabaseService {
 
       if (error) throw error;
 
-      return data.map(supply => ({
+      return (data || []).map(supply => ({
         id: supply.id,
         section: supply.section,
         items: supply.items as any,
@@ -1130,7 +1130,7 @@ class DatabaseService {
 
       if (error) throw error;
 
-      return data.map(transaction => ({
+      return (data || []).map(transaction => ({
         id: transaction.id,
         type: transaction.type,
         amount: parseFloat(transaction.amount),
