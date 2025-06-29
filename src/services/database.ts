@@ -48,103 +48,6 @@ class DatabaseService {
     console.log(`Broadcasting ${type} update:`, data);
   }
 
-  // User operations
-  async createUser(user: User): Promise<void> {
-    try {
-      const { error } = await supabase.from('users').upsert({
-        id: user.id,
-        username: user.username,
-        password: user.password,
-        role: user.role,
-        created_at: user.createdAt.toISOString(),
-      });
-
-      if (error) throw error;
-      console.log('User created successfully:', user.username);
-      this.broadcastUpdate('ITEM_UPDATED', { type: 'user', user });
-    } catch (error) {
-      this.handleError(error, 'createUser');
-    }
-  }
-
-  async getUserByUsername(username: string): Promise<User | null> {
-    if (!username) return null;
-    
-    try {
-      const { data, error } = await supabase
-        .from('users')
-        .select('*')
-        .eq('username', username)
-        .maybeSingle();
-
-      if (error && error.code !== 'PGRST116') {
-        throw error;
-      }
-
-      if (!data) return null;
-
-      return {
-        id: data.id,
-        username: data.username,
-        password: data.password,
-        role: data.role,
-        createdAt: new Date(data.created_at),
-      };
-    } catch (error) {
-      return this.handleError(error, 'getUserByUsername');
-    }
-  }
-
-  async getAllUsers(): Promise<User[]> {
-    try {
-      const { data, error } = await supabase.from('users').select('*');
-      
-      if (error) throw error;
-
-      return data.map(user => ({
-        id: user.id,
-        username: user.username,
-        password: user.password,
-        role: user.role,
-        createdAt: new Date(user.created_at),
-      }));
-    } catch (error) {
-      this.handleError(error, 'getAllUsers');
-      return [];
-    }
-  }
-
-  async updateUser(user: User): Promise<void> {
-    try {
-      const { error } = await supabase
-        .from('users')
-        .update({
-          username: user.username,
-          password: user.password,
-          role: user.role,
-        })
-        .eq('id', user.id);
-
-      if (error) throw error;
-      console.log('User updated successfully:', user.username);
-      this.broadcastUpdate('ITEM_UPDATED', { type: 'user_updated', user });
-    } catch (error) {
-      this.handleError(error, 'updateUser');
-    }
-  }
-
-  async deleteUser(id: string): Promise<void> {
-    try {
-      const { error } = await supabase.from('users').delete().eq('id', id);
-      
-      if (error) throw error;
-      console.log('User deleted successfully:', id);
-      this.broadcastUpdate('ITEM_UPDATED', { type: 'user_deleted', id });
-    } catch (error) {
-      this.handleError(error, 'deleteUser');
-    }
-  }
-
   // Monthly archive operations
   async saveMonthlyArchive(archive: MonthlyArchive): Promise<void> {
     try {
@@ -308,6 +211,103 @@ class DatabaseService {
       this.broadcastUpdate('ITEM_UPDATED', { type: 'month_reset', section }, section);
     } catch (error) {
       this.handleError(error, 'resetMonth');
+    }
+  }
+
+  // User operations
+  async createUser(user: User): Promise<void> {
+    try {
+      const { error } = await supabase.from('users').upsert({
+        id: user.id,
+        username: user.username,
+        password: user.password,
+        role: user.role,
+        created_at: user.createdAt.toISOString(),
+      });
+
+      if (error) throw error;
+      console.log('User created successfully:', user.username);
+      this.broadcastUpdate('ITEM_UPDATED', { type: 'user', user });
+    } catch (error) {
+      this.handleError(error, 'createUser');
+    }
+  }
+
+  async getUserByUsername(username: string): Promise<User | null> {
+    if (!username) return null;
+    
+    try {
+      const { data, error } = await supabase
+        .from('users')
+        .select('*')
+        .eq('username', username)
+        .maybeSingle();
+
+      if (error && error.code !== 'PGRST116') {
+        throw error;
+      }
+
+      if (!data) return null;
+
+      return {
+        id: data.id,
+        username: data.username,
+        password: data.password,
+        role: data.role,
+        createdAt: new Date(data.created_at),
+      };
+    } catch (error) {
+      return this.handleError(error, 'getUserByUsername');
+    }
+  }
+
+  async getAllUsers(): Promise<User[]> {
+    try {
+      const { data, error } = await supabase.from('users').select('*');
+      
+      if (error) throw error;
+
+      return data.map(user => ({
+        id: user.id,
+        username: user.username,
+        password: user.password,
+        role: user.role,
+        createdAt: new Date(user.created_at),
+      }));
+    } catch (error) {
+      this.handleError(error, 'getAllUsers');
+      return [];
+    }
+  }
+
+  async updateUser(user: User): Promise<void> {
+    try {
+      const { error } = await supabase
+        .from('users')
+        .update({
+          username: user.username,
+          password: user.password,
+          role: user.role,
+        })
+        .eq('id', user.id);
+
+      if (error) throw error;
+      console.log('User updated successfully:', user.username);
+      this.broadcastUpdate('ITEM_UPDATED', { type: 'user_updated', user });
+    } catch (error) {
+      this.handleError(error, 'updateUser');
+    }
+  }
+
+  async deleteUser(id: string): Promise<void> {
+    try {
+      const { error } = await supabase.from('users').delete().eq('id', id);
+      
+      if (error) throw error;
+      console.log('User deleted successfully:', id);
+      this.broadcastUpdate('ITEM_UPDATED', { type: 'user_deleted', id });
+    } catch (error) {
+      this.handleError(error, 'deleteUser');
     }
   }
 
@@ -549,6 +549,26 @@ class DatabaseService {
     }
   }
 
+  async deleteCustomer(id: string): Promise<void> {
+    try {
+      const { data: customer } = await supabase
+        .from('customers')
+        .select('section')
+        .eq('id', id)
+        .single();
+
+      const { error } = await supabase.from('customers').delete().eq('id', id);
+      
+      if (error) throw error;
+
+      if (customer) {
+        this.broadcastUpdate('CUSTOMER_UPDATED', { type: 'customer_deleted', id }, customer.section);
+      }
+    } catch (error) {
+      this.handleError(error, 'deleteCustomer');
+    }
+  }
+
   // Customer purchase operations
   async saveCustomerPurchase(purchase: CustomerPurchase): Promise<void> {
     try {
@@ -621,6 +641,26 @@ class DatabaseService {
     } catch (error) {
       this.handleError(error, 'getUnpaidCustomerPurchases');
       return [];
+    }
+  }
+
+  async deleteCustomerPurchase(id: string): Promise<void> {
+    try {
+      const { data: purchase } = await supabase
+        .from('customer_purchases')
+        .select('section')
+        .eq('id', id)
+        .single();
+
+      const { error } = await supabase.from('customer_purchases').delete().eq('id', id);
+      
+      if (error) throw error;
+
+      if (purchase) {
+        this.broadcastUpdate('CUSTOMER_UPDATED', { type: 'customer_purchase_deleted', id }, purchase.section);
+      }
+    } catch (error) {
+      this.handleError(error, 'deleteCustomerPurchase');
     }
   }
 
