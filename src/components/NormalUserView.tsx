@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Package, Users, DollarSign, Clock, AlertTriangle, CheckCircle, X, Edit, Trash2, Camera, Upload } from 'lucide-react';
+import { Plus, Package, Users, DollarSign, Clock, AlertTriangle, CheckCircle, X, Edit, Trash2, Camera, Upload, Eye } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { db_service } from '../services/database';
 import { useRealtime } from '../hooks/useRealtime';
@@ -43,6 +43,7 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
   const [paymentAmount, setPaymentAmount] = useState('');
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [selectedPurchaseForPayment, setSelectedPurchaseForPayment] = useState<CustomerPurchase | null>(null);
+  const [activeTab, setActiveTab] = useState<'sales' | 'customers'>('sales');
 
   // Load data
   useEffect(() => {
@@ -570,7 +571,9 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
       const purchases = await db_service.getCustomerPurchases(customer.id);
       const unpaidPurchases = purchases.filter(p => !p.isPaid);
       
+      let totalDebt = 0;
       for (const purchase of unpaidPurchases) {
+        totalDebt += purchase.totalAmount;
         await markAsPaid(purchase);
       }
       
@@ -679,210 +682,341 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
         </div>
       )}
 
-      {/* Current Shift Expenses */}
-      {activeShift.expenses.length > 0 && (
-        <div className="bg-white rounded-lg shadow-sm p-6">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">مصروفات الوردية الحالية</h3>
-          <div className="space-y-3">
-            {activeShift.expenses.map(expense => (
-              <div key={expense.id} className="flex justify-between items-center p-4 bg-red-50 rounded-lg">
-                <div>
-                  <div className="font-medium">{expense.reason}</div>
-                  <div className="text-sm text-gray-600">{expense.amount.toFixed(2)} جنيه</div>
-                  <div className="text-xs text-gray-500">
-                    {expense.timestamp.toLocaleString('ar-EG')} - {expense.createdBy}
+      {/* Tab Navigation */}
+      <div className="bg-white rounded-lg shadow-sm">
+        <div className="border-b border-gray-200">
+          <nav className="-mb-px flex space-x-8 px-6">
+            <button
+              onClick={() => setActiveTab('sales')}
+              className={`py-4 px-1 border-b-2 font-medium text-sm ${
+                activeTab === 'sales'
+                  ? 'border-blue-500 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              المبيعات
+            </button>
+            <button
+              onClick={() => setActiveTab('customers')}
+              className={`py-4 px-1 border-b-2 font-medium text-sm ${
+                activeTab === 'customers'
+                  ? 'border-blue-500 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              العملاء
+            </button>
+          </nav>
+        </div>
+
+        <div className="p-6">
+          {activeTab === 'sales' ? (
+            <>
+              {/* Current Shift Expenses */}
+              {activeShift.expenses.length > 0 && (
+                <div className="bg-white rounded-lg shadow-sm p-6 mb-6">
+                  <h3 className="text-lg font-semibold text-gray-900 mb-4">مصروفات الوردية الحالية</h3>
+                  <div className="space-y-3">
+                    {activeShift.expenses.map(expense => (
+                      <div key={expense.id} className="flex justify-between items-center p-4 bg-red-50 rounded-lg">
+                        <div>
+                          <div className="font-medium">{expense.reason}</div>
+                          <div className="text-sm text-gray-600">{expense.amount.toFixed(2)} جنيه</div>
+                          <div className="text-xs text-gray-500">
+                            {expense.timestamp.toLocaleString('ar-EG')} - {expense.createdBy}
+                          </div>
+                        </div>
+                        <div className="flex space-x-2">
+                          <button
+                            onClick={() => openEditExpenseModal(expense)}
+                            className="bg-blue-600 hover:bg-blue-700 text-white p-2 rounded-lg"
+                            title="تعديل"
+                          >
+                            <Edit className="h-4 w-4" />
+                          </button>
+                          <button
+                            onClick={() => deleteExpense(expense)}
+                            className="bg-red-600 hover:bg-red-700 text-white p-2 rounded-lg"
+                            title="حذف"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 </div>
-                <div className="flex space-x-2">
-                  <button
-                    onClick={() => openEditExpenseModal(expense)}
-                    className="bg-blue-600 hover:bg-blue-700 text-white p-2 rounded-lg"
-                    title="تعديل"
-                  >
-                    <Edit className="h-4 w-4" />
-                  </button>
-                  <button
-                    onClick={() => deleteExpense(expense)}
-                    className="bg-red-600 hover:bg-red-700 text-white p-2 rounded-lg"
-                    title="حذف"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </button>
+              )}
+
+              {/* Customer Debt Summary */}
+              {unpaidPurchases.length > 0 && (
+                <div className="bg-white rounded-lg shadow-sm p-6 mb-6">
+                  <h3 className="text-lg font-semibold text-gray-900 mb-4">ديون العملاء</h3>
+                  <div className="space-y-3">
+                    {customers.map(customer => {
+                      const customerDebt = unpaidPurchases
+                        .filter(p => p.customerId === customer.id)
+                        .reduce((sum, p) => sum + p.totalAmount, 0);
+                      
+                      if (customerDebt === 0) return null;
+
+                      return (
+                        <div key={customer.id} className="flex justify-between items-center p-4 bg-yellow-50 rounded-lg">
+                          <div>
+                            <button
+                              onClick={() => openCustomerDetails(customer)}
+                              className="font-medium text-blue-600 hover:text-blue-800"
+                            >
+                              {customer.name}
+                            </button>
+                            <div className="text-sm text-gray-600">
+                              إجمالي الدين: {customerDebt.toFixed(2)} جنيه
+                            </div>
+                          </div>
+                          <div className="flex space-x-2">
+                            <button
+                              onClick={() => payAllCustomerDebt(customer)}
+                              disabled={isLoading}
+                              className="bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded text-sm disabled:opacity-50"
+                            >
+                              دفع الكل
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
+              )}
 
-      {/* Customer Debt Summary */}
-      {unpaidPurchases.length > 0 && (
-        <div className="bg-white rounded-lg shadow-sm p-6">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">ديون العملاء</h3>
-          <div className="space-y-3">
-            {customers.map(customer => {
-              const customerDebt = unpaidPurchases
-                .filter(p => p.customerId === customer.id)
-                .reduce((sum, p) => sum + p.totalAmount, 0);
-              
-              if (customerDebt === 0) return null;
-
-              return (
-                <div key={customer.id} className="flex justify-between items-center p-4 bg-yellow-50 rounded-lg">
-                  <div>
-                    <button
-                      onClick={() => openCustomerDetails(customer)}
-                      className="font-medium text-blue-600 hover:text-blue-800"
-                    >
-                      {customer.name}
-                    </button>
-                    <div className="text-sm text-gray-600">
-                      إجمالي الدين: {customerDebt.toFixed(2)} جنيه
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                {/* Items Grid */}
+                <div className="lg:col-span-2">
+                  <div className="bg-white rounded-lg shadow-sm p-6">
+                    <h3 className="text-lg font-semibold text-gray-900 mb-4">المنتجات</h3>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+                      {items.map(item => (
+                        <div
+                          key={item.id}
+                          className={`border rounded-lg p-4 cursor-pointer transition-colors ${
+                            item.currentAmount > 0
+                              ? 'hover:bg-blue-50 border-gray-200'
+                              : 'bg-gray-50 border-gray-300 cursor-not-allowed'
+                          }`}
+                          onClick={() => item.currentAmount > 0 && addToCart(item)}
+                        >
+                          {item.image && (
+                            <img
+                              src={item.image}
+                              alt={item.name}
+                              className="w-full h-32 object-cover rounded-md mb-2"
+                            />
+                          )}
+                          <div className="font-medium text-gray-900">{item.name}</div>
+                          <div className="text-lg font-bold text-blue-600">{item.sellPrice} جنيه</div>
+                          <div className={`text-sm ${item.currentAmount > 0 ? 'text-green-600' : 'text-red-600'}`}>
+                            المخزون: {item.currentAmount}
+                          </div>
+                        </div>
+                      ))}
                     </div>
                   </div>
-                  <div className="flex space-x-2">
-                    <button
-                      onClick={() => payAllCustomerDebt(customer)}
-                      disabled={isLoading}
-                      className="bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded text-sm disabled:opacity-50"
-                    >
-                      دفع الكل
-                    </button>
-                  </div>
                 </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Items Grid */}
-        <div className="lg:col-span-2">
-          <div className="bg-white rounded-lg shadow-sm p-6">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">المنتجات</h3>
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-              {items.map(item => (
-                <div
-                  key={item.id}
-                  className={`border rounded-lg p-4 cursor-pointer transition-colors ${
-                    item.currentAmount > 0
-                      ? 'hover:bg-blue-50 border-gray-200'
-                      : 'bg-gray-50 border-gray-300 cursor-not-allowed'
-                  }`}
-                  onClick={() => item.currentAmount > 0 && addToCart(item)}
-                >
-                  {item.image && (
-                    <img
-                      src={item.image}
-                      alt={item.name}
-                      className="w-full h-32 object-cover rounded-md mb-2"
-                    />
+                {/* Cart */}
+                <div className="bg-white rounded-lg shadow-sm p-6">
+                  <h3 className="text-lg font-semibold text-gray-900 mb-4">السلة</h3>
+                  
+                  {/* Customer Purchase Toggle */}
+                  <div className="mb-4">
+                    <label className="flex items-center">
+                      <input
+                        type="checkbox"
+                        checked={isCustomerPurchase}
+                        onChange={(e) => setIsCustomerPurchase(e.target.checked)}
+                        className="mr-2"
+                      />
+                      <span className="text-sm">شراء عميل (غير مدفوع)</span>
+                    </label>
+                  </div>
+
+                  {/* Customer Selection */}
+                  {isCustomerPurchase && (
+                    <div className="mb-4">
+                      <div className="flex space-x-2 mb-2">
+                        <select
+                          value={selectedCustomer?.id || ''}
+                          onChange={(e) => {
+                            const customer = customers.find(c => c.id === e.target.value);
+                            setSelectedCustomer(customer || null);
+                          }}
+                          className="flex-1 border border-gray-300 rounded-lg px-3 py-2"
+                        >
+                          <option value="">اختر عميل</option>
+                          {customers.map(customer => (
+                            <option key={customer.id} value={customer.id}>
+                              {customer.name}
+                            </option>
+                          ))}
+                        </select>
+                        <button
+                          onClick={() => setShowNewCustomerModal(true)}
+                          className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded-lg"
+                        >
+                          <Plus className="h-4 w-4" />
+                        </button>
+                      </div>
+                    </div>
                   )}
-                  <div className="font-medium text-gray-900">{item.name}</div>
-                  <div className="text-lg font-bold text-blue-600">{item.sellPrice} جنيه</div>
-                  <div className={`text-sm ${item.currentAmount > 0 ? 'text-green-600' : 'text-red-600'}`}>
-                    المخزون: {item.currentAmount}
+
+                  {/* Cart Items */}
+                  <div className="space-y-3 mb-4">
+                    {cart.map(cartItem => (
+                      <div key={cartItem.itemId} className="flex justify-between items-center p-3 bg-gray-50 rounded-lg">
+                        <div>
+                          <div className="font-medium">{cartItem.name}</div>
+                          <div className="text-sm text-gray-600">{cartItem.price} جنيه للقطعة</div>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                          <button
+                            onClick={() => updateCartQuantity(cartItem.itemId, cartItem.quantity - 1)}
+                            className="bg-gray-200 hover:bg-gray-300 text-gray-700 w-8 h-8 rounded-full flex items-center justify-center"
+                          >
+                            -
+                          </button>
+                          <span className="w-8 text-center">{cartItem.quantity}</span>
+                          <button
+                            onClick={() => updateCartQuantity(cartItem.itemId, cartItem.quantity + 1)}
+                            className="bg-gray-200 hover:bg-gray-300 text-gray-700 w-8 h-8 rounded-full flex items-center justify-center"
+                          >
+                            +
+                          </button>
+                          <button
+                            onClick={() => removeFromCart(cartItem.itemId)}
+                            className="text-red-600 hover:text-red-700 ml-2"
+                          >
+                            <X className="h-4 w-4" />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
                   </div>
+
+                  {/* Cart Total */}
+                  {cart.length > 0 && (
+                    <div className="border-t pt-4">
+                      <div className="flex justify-between items-center mb-4">
+                        <span className="text-lg font-semibold">الإجمالي:</span>
+                        <span className="text-xl font-bold text-blue-600">{cartTotal.toFixed(2)} جنيه</span>
+                      </div>
+                      <button
+                        onClick={processSale}
+                        disabled={isLoading || (isCustomerPurchase && !selectedCustomer)}
+                        className="w-full bg-green-600 hover:bg-green-700 text-white py-3 rounded-lg font-medium disabled:opacity-50"
+                      >
+                        {isLoading ? 'جاري المعالجة...' : isCustomerPurchase ? 'إضافة لحساب العميل' : 'إتمام البيع'}
+                      </button>
+                    </div>
+                  )}
                 </div>
-              ))}
-            </div>
-          </div>
-        </div>
-
-        {/* Cart */}
-        <div className="bg-white rounded-lg shadow-sm p-6">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">السلة</h3>
-          
-          {/* Customer Purchase Toggle */}
-          <div className="mb-4">
-            <label className="flex items-center">
-              <input
-                type="checkbox"
-                checked={isCustomerPurchase}
-                onChange={(e) => setIsCustomerPurchase(e.target.checked)}
-                className="mr-2"
-              />
-              <span className="text-sm">شراء عميل (غير مدفوع)</span>
-            </label>
-          </div>
-
-          {/* Customer Selection */}
-          {isCustomerPurchase && (
-            <div className="mb-4">
-              <div className="flex space-x-2 mb-2">
-                <select
-                  value={selectedCustomer?.id || ''}
-                  onChange={(e) => {
-                    const customer = customers.find(c => c.id === e.target.value);
-                    setSelectedCustomer(customer || null);
-                  }}
-                  className="flex-1 border border-gray-300 rounded-lg px-3 py-2"
-                >
-                  <option value="">اختر عميل</option>
-                  {customers.map(customer => (
-                    <option key={customer.id} value={customer.id}>
-                      {customer.name}
-                    </option>
-                  ))}
-                </select>
+              </div>
+            </>
+          ) : (
+            /* Customers Tab */
+            <div className="space-y-6">
+              <div className="flex justify-between items-center">
+                <h3 className="text-lg font-semibold text-gray-900">العملاء وديونهم</h3>
                 <button
                   onClick={() => setShowNewCustomerModal(true)}
-                  className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded-lg"
+                  className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg flex items-center space-x-2"
                 >
                   <Plus className="h-4 w-4" />
+                  <span>إضافة عميل</span>
                 </button>
               </div>
-            </div>
-          )}
 
-          {/* Cart Items */}
-          <div className="space-y-3 mb-4">
-            {cart.map(cartItem => (
-              <div key={cartItem.itemId} className="flex justify-between items-center p-3 bg-gray-50 rounded-lg">
-                <div>
-                  <div className="font-medium">{cartItem.name}</div>
-                  <div className="text-sm text-gray-600">{cartItem.price} جنيه للقطعة</div>
-                </div>
-                <div className="flex items-center space-x-2">
-                  <button
-                    onClick={() => updateCartQuantity(cartItem.itemId, cartItem.quantity - 1)}
-                    className="bg-gray-200 hover:bg-gray-300 text-gray-700 w-8 h-8 rounded-full flex items-center justify-center"
-                  >
-                    -
-                  </button>
-                  <span className="w-8 text-center">{cartItem.quantity}</span>
-                  <button
-                    onClick={() => updateCartQuantity(cartItem.itemId, cartItem.quantity + 1)}
-                    className="bg-gray-200 hover:bg-gray-300 text-gray-700 w-8 h-8 rounded-full flex items-center justify-center"
-                  >
-                    +
-                  </button>
-                  <button
-                    onClick={() => removeFromCart(cartItem.itemId)}
-                    className="text-red-600 hover:text-red-700 ml-2"
-                  >
-                    <X className="h-4 w-4" />
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {customers.map(customer => {
+                  const customerDebt = unpaidPurchases
+                    .filter(p => p.customerId === customer.id)
+                    .reduce((sum, p) => sum + p.totalAmount, 0);
+                  
+                  const customerPurchasesList = unpaidPurchases.filter(p => p.customerId === customer.id);
 
-          {/* Cart Total */}
-          {cart.length > 0 && (
-            <div className="border-t pt-4">
-              <div className="flex justify-between items-center mb-4">
-                <span className="text-lg font-semibold">الإجمالي:</span>
-                <span className="text-xl font-bold text-blue-600">{cartTotal.toFixed(2)} جنيه</span>
+                  return (
+                    <div key={customer.id} className="bg-white border rounded-lg p-4 shadow-sm">
+                      <div className="flex justify-between items-start mb-3">
+                        <div>
+                          <h4 className="font-semibold text-gray-900">{customer.name}</h4>
+                          <p className="text-sm text-gray-600">
+                            تاريخ الإنشاء: {customer.createdAt.toLocaleDateString('ar-EG')}
+                          </p>
+                        </div>
+                        <button
+                          onClick={() => openCustomerDetails(customer)}
+                          className="text-blue-600 hover:text-blue-800"
+                          title="عرض التفاصيل"
+                        >
+                          <Eye className="h-4 w-4" />
+                        </button>
+                      </div>
+
+                      <div className="space-y-2">
+                        <div className="flex justify-between items-center">
+                          <span className="text-sm text-gray-600">إجمالي الدين:</span>
+                          <span className={`font-semibold ${customerDebt > 0 ? 'text-red-600' : 'text-green-600'}`}>
+                            {customerDebt.toFixed(2)} جنيه
+                          </span>
+                        </div>
+                        
+                        <div className="flex justify-between items-center">
+                          <span className="text-sm text-gray-600">عدد المشتريات غير المدفوعة:</span>
+                          <span className="font-semibold text-gray-900">{customerPurchasesList.length}</span>
+                        </div>
+                      </div>
+
+                      {customerDebt > 0 && (
+                        <div className="mt-4 space-y-2">
+                          <div className="text-xs text-gray-500">المنتجات المستحقة:</div>
+                          <div className="space-y-1 max-h-20 overflow-y-auto">
+                            {customerPurchasesList.slice(0, 3).map((purchase, index) => (
+                              <div key={index} className="text-xs text-gray-600">
+                                • {purchase.items.map(item => `${item.name} (${item.quantity})`).join(', ')}
+                              </div>
+                            ))}
+                            {customerPurchasesList.length > 3 && (
+                              <div className="text-xs text-gray-500">
+                                ... و {customerPurchasesList.length - 3} مشتريات أخرى
+                              </div>
+                            )}
+                          </div>
+                          
+                          <button
+                            onClick={() => payAllCustomerDebt(customer)}
+                            disabled={isLoading || !activeShift}
+                            className="w-full bg-green-600 hover:bg-green-700 text-white py-2 px-3 rounded text-sm disabled:opacity-50 mt-3"
+                          >
+                            دفع جميع الديون ({customerDebt.toFixed(2)} جنيه)
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
-              <button
-                onClick={processSale}
-                disabled={isLoading || (isCustomerPurchase && !selectedCustomer)}
-                className="w-full bg-green-600 hover:bg-green-700 text-white py-3 rounded-lg font-medium disabled:opacity-50"
-              >
-                {isLoading ? 'جاري المعالجة...' : isCustomerPurchase ? 'إضافة لحساب العميل' : 'إتمام البيع'}
-              </button>
+
+              {customers.length === 0 && (
+                <div className="text-center py-8">
+                  <Users className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+                  <p className="text-gray-600">لا يوجد عملاء مسجلين</p>
+                  <button
+                    onClick={() => setShowNewCustomerModal(true)}
+                    className="mt-4 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg"
+                  >
+                    إضافة أول عميل
+                  </button>
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -1168,7 +1302,7 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
                       <div>
                         <div className="font-medium">{item.name}</div>
                         <div className="text-xs text-gray-500">
-                          .
+                          الحالي: {item.currentAmount}
                         </div>
                       </div>
                       <input
