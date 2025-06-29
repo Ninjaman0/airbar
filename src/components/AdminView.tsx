@@ -1,15 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import { 
   Package, Users, DollarSign, TrendingUp, Calendar, FileText, 
-  Settings, Plus, Edit, Trash2, Eye, Download, AlertTriangle,
-  CheckCircle, Clock, X, Save, BarChart3, PieChart, Activity
+  Plus, Edit, Trash2, Save, X, Upload, Download, RotateCcw,
+  AlertTriangle, CheckCircle, Clock, Eye, Settings, Archive
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { db_service } from '../services/database';
 import { useRealtime } from '../hooks/useRealtime';
 import { 
-  Item, Category, Customer, Shift, Supply, AdminLog, User, 
-  SupplementDebt, SupplementDebtTransaction, CustomerPurchase, Expense, ExternalMoney
+  Item, Category, Customer, Shift, Supply, AdminLog, 
+  SupplementDebt, SupplementDebtTransaction, MonthlyArchive,
+  CustomerPurchase, Expense, ExternalMoney
 } from '../types';
 import { v4 as uuidv4 } from 'uuid';
 import { generateShiftsPDF, generateMonthlySummaryPDF } from '../utils/pdfGenerator';
@@ -20,69 +21,50 @@ interface AdminViewProps {
 
 const AdminView: React.FC<AdminViewProps> = ({ section }) => {
   const { user } = useAuth();
-  const [activeTab, setActiveTab] = useState('dashboard');
+  const [activeTab, setActiveTab] = useState('inventory');
   const [items, setItems] = useState<Item[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [shifts, setShifts] = useState<Shift[]>([]);
   const [supplies, setSupplies] = useState<Supply[]>([]);
   const [adminLogs, setAdminLogs] = useState<AdminLog[]>([]);
-  const [users, setUsers] = useState<User[]>([]);
-  const [unpaidPurchases, setUnpaidPurchases] = useState<CustomerPurchase[]>([]);
+  const [monthlyArchives, setMonthlyArchives] = useState<MonthlyArchive[]>([]);
   const [supplementDebt, setSupplementDebt] = useState<SupplementDebt | null>(null);
-  const [debtTransactions, setDebtTransactions] = useState<SupplementDebtTransaction[]>([]);
+  const [supplementDebtTransactions, setSupplementDebtTransactions] = useState<SupplementDebtTransaction[]>([]);
+  const [activeShift, setActiveShift] = useState<Shift | null>(null);
+  const [unpaidPurchases, setUnpaidPurchases] = useState<CustomerPurchase[]>([]);
   
   // Modal states
   const [showItemModal, setShowItemModal] = useState(false);
   const [showCategoryModal, setShowCategoryModal] = useState(false);
-  const [showCustomerModal, setShowCustomerModal] = useState(false);
   const [showSupplyModal, setShowSupplyModal] = useState(false);
-  const [showUserModal, setShowUserModal] = useState(false);
-  const [showShiftDetailsModal, setShowShiftDetailsModal] = useState(false);
   const [showDebtModal, setShowDebtModal] = useState(false);
-  const [showDebtTransactionModal, setShowDebtTransactionModal] = useState(false);
+  const [showShiftDetailsModal, setShowShiftDetailsModal] = useState(false);
+  const [showCustomerDetailsModal, setShowCustomerDetailsModal] = useState(false);
+  const [showResetMonthModal, setShowResetMonthModal] = useState(false);
   
   // Form states
   const [editingItem, setEditingItem] = useState<Item | null>(null);
   const [editingCategory, setEditingCategory] = useState<Category | null>(null);
-  const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null);
-  const [editingUser, setEditingUser] = useState<User | null>(null);
   const [selectedShift, setSelectedShift] = useState<Shift | null>(null);
+  const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
+  const [customerPurchases, setCustomerPurchases] = useState<CustomerPurchase[]>([]);
   
   const [itemForm, setItemForm] = useState({
     name: '',
     sellPrice: '',
     costPrice: '',
     currentAmount: '',
-    categoryId: '',
-    image: ''
+    image: '',
+    categoryId: ''
   });
   
   const [categoryForm, setCategoryForm] = useState({
     name: ''
   });
   
-  const [customerForm, setCustomerForm] = useState({
-    name: ''
-  });
-  
-  const [supplyForm, setSupplyForm] = useState({
-    items: {} as Record<string, number>,
-    totalCost: ''
-  });
-  
-  const [userForm, setUserForm] = useState({
-    username: '',
-    password: '',
-    role: 'normal' as 'normal' | 'admin'
-  });
-
+  const [supplyForm, setSupplyForm] = useState<Record<string, string>>({});
   const [debtForm, setDebtForm] = useState({
-    amount: '',
-    note: ''
-  });
-
-  const [debtTransactionForm, setDebtTransactionForm] = useState({
     type: 'payment' as 'payment' | 'debt',
     amount: '',
     note: ''
@@ -100,7 +82,7 @@ const AdminView: React.FC<AdminViewProps> = ({ section }) => {
     try {
       const [
         itemsData, categoriesData, customersData, shiftsData, 
-        suppliesData, adminLogsData, usersData, unpaidData
+        suppliesData, logsData, archivesData, activeShiftData, unpaidData
       ] = await Promise.all([
         db_service.getItemsBySection(section),
         db_service.getCategoriesBySection(section),
@@ -108,7 +90,8 @@ const AdminView: React.FC<AdminViewProps> = ({ section }) => {
         db_service.getShiftsBySection(section),
         db_service.getSuppliesBySection(section),
         db_service.getAllAdminLogs(),
-        db_service.getAllUsers(),
+        db_service.getMonthlyArchives(section),
+        db_service.getActiveShift(section),
         db_service.getUnpaidCustomerPurchases(section)
       ]);
 
@@ -117,28 +100,29 @@ const AdminView: React.FC<AdminViewProps> = ({ section }) => {
       setCustomers(customersData);
       setShifts(shiftsData);
       setSupplies(suppliesData);
-      setAdminLogs(adminLogsData.filter(log => !log.section || log.section === section));
-      setUsers(usersData);
+      setAdminLogs(logsData.filter(log => !log.section || log.section === section));
+      setMonthlyArchives(archivesData);
+      setActiveShift(activeShiftData);
       setUnpaidPurchases(unpaidData);
 
-      // Load supplement debt data if in supplement section
+      // Initialize supply form
+      const supplyFormData: Record<string, string> = {};
+      itemsData.forEach(item => {
+        supplyFormData[item.id] = '0';
+      });
+      setSupplyForm(supplyFormData);
+
+      // Load supplement debt if in supplement section
       if (section === 'supplement') {
         const [debtData, transactionsData] = await Promise.all([
           db_service.getSupplementDebt(),
           db_service.getSupplementDebtTransactions()
         ]);
         setSupplementDebt(debtData);
-        setDebtTransactions(transactionsData);
+        setSupplementDebtTransactions(transactionsData);
       }
-
-      // Initialize supply form with current items
-      const supplyItems: Record<string, number> = {};
-      itemsData.forEach(item => {
-        supplyItems[item.id] = 0;
-      });
-      setSupplyForm(prev => ({ ...prev, items: supplyItems }));
     } catch (error) {
-      console.error('Error loading data:', error);
+      console.error('خطأ في تحميل البيانات:', error);
       setError('فشل في تحميل البيانات');
     }
   };
@@ -159,15 +143,15 @@ const AdminView: React.FC<AdminViewProps> = ({ section }) => {
 
     try {
       setIsLoading(true);
-
+      
       const item: Item = {
         id: editingItem?.id || uuidv4(),
         name: itemForm.name,
         sellPrice: parseFloat(itemForm.sellPrice),
         costPrice: parseFloat(itemForm.costPrice),
         currentAmount: parseInt(itemForm.currentAmount) || 0,
-        categoryId: itemForm.categoryId || undefined,
         image: itemForm.image || undefined,
+        categoryId: itemForm.categoryId || undefined,
         section,
         createdAt: editingItem?.createdAt || new Date(),
         updatedAt: new Date()
@@ -175,14 +159,14 @@ const AdminView: React.FC<AdminViewProps> = ({ section }) => {
 
       await db_service.saveItem(item);
 
-      // Log admin action
+      // Log the action
       const log: AdminLog = {
         id: uuidv4(),
-        actionType: editingItem ? 'تعديل منتج' : 'إضافة منتج',
+        actionType: editingItem ? 'item_updated' : 'item_created',
         itemOrShiftAffected: item.name,
-        changeDetails: editingItem ? 
-          `تم تعديل المنتج: ${item.name}` : 
-          `تم إضافة منتج جديد: ${item.name}`,
+        changeDetails: editingItem 
+          ? `تم تحديث المنتج: ${item.name}`
+          : `تم إنشاء منتج جديد: ${item.name}`,
         timestamp: new Date(),
         adminName: user?.username || '',
         section
@@ -191,10 +175,9 @@ const AdminView: React.FC<AdminViewProps> = ({ section }) => {
 
       resetItemForm();
       setShowItemModal(false);
-      setError('');
       await loadData();
     } catch (error) {
-      console.error('Error saving item:', error);
+      console.error('خطأ في حفظ المنتج:', error);
       setError('فشل في حفظ المنتج');
     } finally {
       setIsLoading(false);
@@ -208,10 +191,9 @@ const AdminView: React.FC<AdminViewProps> = ({ section }) => {
       setIsLoading(true);
       await db_service.deleteItem(item.id);
 
-      // Log admin action
       const log: AdminLog = {
         id: uuidv4(),
-        actionType: 'حذف منتج',
+        actionType: 'item_deleted',
         itemOrShiftAffected: item.name,
         changeDetails: `تم حذف المنتج: ${item.name}`,
         timestamp: new Date(),
@@ -222,36 +204,36 @@ const AdminView: React.FC<AdminViewProps> = ({ section }) => {
 
       await loadData();
     } catch (error) {
-      console.error('Error deleting item:', error);
+      console.error('خطأ في حذف المنتج:', error);
       setError('فشل في حذف المنتج');
     } finally {
       setIsLoading(false);
     }
   };
 
-  const editItem = (item: Item) => {
+  const resetItemForm = () => {
+    setItemForm({
+      name: '',
+      sellPrice: '',
+      costPrice: '',
+      currentAmount: '',
+      image: '',
+      categoryId: ''
+    });
+    setEditingItem(null);
+  };
+
+  const openEditItem = (item: Item) => {
     setEditingItem(item);
     setItemForm({
       name: item.name,
       sellPrice: item.sellPrice.toString(),
       costPrice: item.costPrice.toString(),
       currentAmount: item.currentAmount.toString(),
-      categoryId: item.categoryId || '',
-      image: item.image || ''
+      image: item.image || '',
+      categoryId: item.categoryId || ''
     });
     setShowItemModal(true);
-  };
-
-  const resetItemForm = () => {
-    setEditingItem(null);
-    setItemForm({
-      name: '',
-      sellPrice: '',
-      costPrice: '',
-      currentAmount: '',
-      categoryId: '',
-      image: ''
-    });
   };
 
   // Category operations
@@ -263,7 +245,7 @@ const AdminView: React.FC<AdminViewProps> = ({ section }) => {
 
     try {
       setIsLoading(true);
-
+      
       const category: Category = {
         id: editingCategory?.id || uuidv4(),
         name: categoryForm.name,
@@ -273,14 +255,13 @@ const AdminView: React.FC<AdminViewProps> = ({ section }) => {
 
       await db_service.saveCategory(category);
 
-      // Log admin action
       const log: AdminLog = {
         id: uuidv4(),
-        actionType: editingCategory ? 'تعديل فئة' : 'إضافة فئة',
+        actionType: editingCategory ? 'category_updated' : 'category_created',
         itemOrShiftAffected: category.name,
-        changeDetails: editingCategory ? 
-          `تم تعديل الفئة: ${category.name}` : 
-          `تم إضافة فئة جديدة: ${category.name}`,
+        changeDetails: editingCategory 
+          ? `تم تحديث الفئة: ${category.name}`
+          : `تم إنشاء فئة جديدة: ${category.name}`,
         timestamp: new Date(),
         adminName: user?.username || '',
         section
@@ -289,10 +270,9 @@ const AdminView: React.FC<AdminViewProps> = ({ section }) => {
 
       resetCategoryForm();
       setShowCategoryModal(false);
-      setError('');
       await loadData();
     } catch (error) {
-      console.error('Error saving category:', error);
+      console.error('خطأ في حفظ الفئة:', error);
       setError('فشل في حفظ الفئة');
     } finally {
       setIsLoading(false);
@@ -306,10 +286,9 @@ const AdminView: React.FC<AdminViewProps> = ({ section }) => {
       setIsLoading(true);
       await db_service.deleteCategory(category.id);
 
-      // Log admin action
       const log: AdminLog = {
         id: uuidv4(),
-        actionType: 'حذف فئة',
+        actionType: 'category_deleted',
         itemOrShiftAffected: category.name,
         changeDetails: `تم حذف الفئة: ${category.name}`,
         timestamp: new Date(),
@@ -320,335 +299,106 @@ const AdminView: React.FC<AdminViewProps> = ({ section }) => {
 
       await loadData();
     } catch (error) {
-      console.error('Error deleting category:', error);
+      console.error('خطأ في حذف الفئة:', error);
       setError('فشل في حذف الفئة');
     } finally {
       setIsLoading(false);
     }
   };
 
-  const editCategory = (category: Category) => {
+  const resetCategoryForm = () => {
+    setCategoryForm({ name: '' });
+    setEditingCategory(null);
+  };
+
+  const openEditCategory = (category: Category) => {
     setEditingCategory(category);
     setCategoryForm({ name: category.name });
     setShowCategoryModal(true);
   };
 
-  const resetCategoryForm = () => {
-    setEditingCategory(null);
-    setCategoryForm({ name: '' });
-  };
+  // Supply operations
+  const addSupply = async () => {
+    const itemsToSupply = Object.entries(supplyForm)
+      .filter(([_, quantity]) => parseInt(quantity) > 0)
+      .reduce((acc, [itemId, quantity]) => {
+        acc[itemId] = parseInt(quantity);
+        return acc;
+      }, {} as Record<string, number>);
 
-  // Customer operations
-  const saveCustomer = async () => {
-    if (!customerForm.name) {
-      setError('يرجى إدخال اسم العميل');
+    if (Object.keys(itemsToSupply).length === 0) {
+      setError('يرجى إدخال كميات صالحة للتوريد');
       return;
     }
 
     try {
       setIsLoading(true);
 
-      const customer: Customer = {
-        id: editingCustomer?.id || uuidv4(),
-        name: customerForm.name,
-        section,
-        createdAt: editingCustomer?.createdAt || new Date()
-      };
+      // Calculate total cost
+      let totalCost = 0;
+      for (const [itemId, quantity] of Object.entries(itemsToSupply)) {
+        const item = items.find(i => i.id === itemId);
+        if (item) {
+          totalCost += item.costPrice * quantity;
+        }
+      }
 
-      await db_service.saveCustomer(customer);
-
-      // Log admin action
-      const log: AdminLog = {
+      const supply: Supply = {
         id: uuidv4(),
-        actionType: editingCustomer ? 'تعديل عميل' : 'إضافة عميل',
-        itemOrShiftAffected: customer.name,
-        changeDetails: editingCustomer ? 
-          `تم تعديل العميل: ${customer.name}` : 
-          `تم إضافة عميل جديد: ${customer.name}`,
+        section,
+        items: itemsToSupply,
+        totalCost,
         timestamp: new Date(),
-        adminName: user?.username || '',
-        section
+        createdBy: user?.username || ''
       };
-      await db_service.saveAdminLog(log);
 
-      resetCustomerForm();
-      setShowCustomerModal(false);
-      setError('');
-      await loadData();
-    } catch (error) {
-      console.error('Error saving customer:', error);
-      setError('فشل في حفظ العميل');
-    } finally {
-      setIsLoading(false);
-    }
-  };
+      // Save supply with active shift for expense deduction
+      await db_service.saveSupply(supply, activeShift || undefined);
 
-  const editCustomer = (customer: Customer) => {
-    setEditingCustomer(customer);
-    setCustomerForm({ name: customer.name });
-    setShowCustomerModal(true);
-  };
-
-  const resetCustomerForm = () => {
-    setEditingCustomer(null);
-    setCustomerForm({ name: '' });
-  };
-
-  // Mark customer purchase as paid
-  const markAsPaid = async (purchase: CustomerPurchase) => {
-    try {
-      setIsLoading(true);
-
-      // Mark purchase as paid
-      const updatedPurchase = { ...purchase, isPaid: true };
-      await db_service.saveCustomerPurchase(updatedPurchase);
-
-      // Update inventory (deduct items)
-      for (const item of purchase.items) {
-        const existingItem = items.find(i => i.id === item.itemId);
-        if (existingItem) {
+      // Update item quantities
+      for (const [itemId, quantity] of Object.entries(itemsToSupply)) {
+        const item = items.find(i => i.id === itemId);
+        if (item) {
           const updatedItem = {
-            ...existingItem,
-            currentAmount: existingItem.currentAmount - item.quantity,
+            ...item,
+            currentAmount: item.currentAmount + quantity,
             updatedAt: new Date()
           };
           await db_service.saveItem(updatedItem);
         }
       }
 
-      // Log admin action
       const log: AdminLog = {
         id: uuidv4(),
-        actionType: 'دفع عميل',
-        itemOrShiftAffected: purchase.customerName,
-        changeDetails: `تم دفع مبلغ ${purchase.totalAmount} جنيه من العميل ${purchase.customerName}`,
+        actionType: 'supply_added',
+        itemOrShiftAffected: 'مخزون',
+        changeDetails: `تم إضافة توريد بقيمة ${totalCost.toFixed(2)} جنيه`,
         timestamp: new Date(),
         adminName: user?.username || '',
         section
       };
       await db_service.saveAdminLog(log);
 
-      await loadData();
-    } catch (error) {
-      console.error('Error marking as paid:', error);
-      setError('فشل في تحديد كمدفوع');
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  // Supply operations
-  const saveSupply = async () => {
-    const totalItems = Object.values(supplyForm.items).reduce((sum, qty) => sum + qty, 0);
-    if (totalItems === 0 || !supplyForm.totalCost) {
-      setError('يرجى إدخال كميات المنتجات والتكلفة الإجمالية');
-      return;
-    }
-
-    try {
-      setIsLoading(true);
-
-      const supply: Supply = {
-        id: uuidv4(),
-        section,
-        items: supplyForm.items,
-        totalCost: parseFloat(supplyForm.totalCost),
-        timestamp: new Date(),
-        createdBy: user?.username || ''
-      };
-
-      await db_service.saveSupply(supply);
-
-      // Update item quantities
-      for (const [itemId, quantity] of Object.entries(supplyForm.items)) {
-        if (quantity > 0) {
-          const item = items.find(i => i.id === itemId);
-          if (item) {
-            const updatedItem = {
-              ...item,
-              currentAmount: item.currentAmount + quantity,
-              updatedAt: new Date()
-            };
-            await db_service.saveItem(updatedItem);
-          }
-        }
-      }
-
-      // Log admin action
-      const log: AdminLog = {
-        id: uuidv4(),
-        actionType: 'إضافة توريد',
-        itemOrShiftAffected: 'توريد جديد',
-        changeDetails: `تم إضافة توريد بتكلفة ${supply.totalCost} جنيه`,
-        timestamp: new Date(),
-        adminName: user?.username || '',
-        section
-      };
-      await db_service.saveAdminLog(log);
-
-      resetSupplyForm();
+      // Reset form
+      const resetForm: Record<string, string> = {};
+      items.forEach(item => {
+        resetForm[item.id] = '0';
+      });
+      setSupplyForm(resetForm);
       setShowSupplyModal(false);
-      setError('');
       await loadData();
     } catch (error) {
-      console.error('Error saving supply:', error);
-      setError('فشل في حفظ التوريد');
+      console.error('خطأ في إضافة التوريد:', error);
+      setError('فشل في إضافة التوريد');
     } finally {
       setIsLoading(false);
     }
-  };
-
-  const resetSupplyForm = () => {
-    const supplyItems: Record<string, number> = {};
-    items.forEach(item => {
-      supplyItems[item.id] = 0;
-    });
-    setSupplyForm({
-      items: supplyItems,
-      totalCost: ''
-    });
-  };
-
-  // User operations
-  const saveUser = async () => {
-    if (!userForm.username || !userForm.password) {
-      setError('يرجى ملء جميع الحقول المطلوبة');
-      return;
-    }
-
-    try {
-      setIsLoading(true);
-
-      const newUser: User = {
-        id: editingUser?.id || uuidv4(),
-        username: userForm.username,
-        password: userForm.password,
-        role: userForm.role,
-        createdAt: editingUser?.createdAt || new Date()
-      };
-
-      if (editingUser) {
-        await db_service.updateUser(newUser);
-      } else {
-        await db_service.createUser(newUser);
-      }
-
-      // Log admin action
-      const log: AdminLog = {
-        id: uuidv4(),
-        actionType: editingUser ? 'تعديل مستخدم' : 'إضافة مستخدم',
-        itemOrShiftAffected: newUser.username,
-        changeDetails: editingUser ? 
-          `تم تعديل المستخدم: ${newUser.username}` : 
-          `تم إضافة مستخدم جديد: ${newUser.username}`,
-        timestamp: new Date(),
-        adminName: user?.username || ''
-      };
-      await db_service.saveAdminLog(log);
-
-      resetUserForm();
-      setShowUserModal(false);
-      setError('');
-      await loadData();
-    } catch (error) {
-      console.error('Error saving user:', error);
-      setError('فشل في حفظ المستخدم');
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const deleteUser = async (userToDelete: User) => {
-    if (!confirm(`هل أنت متأكد من حذف المستخدم "${userToDelete.username}"؟`)) return;
-
-    try {
-      setIsLoading(true);
-      await db_service.deleteUser(userToDelete.id);
-
-      // Log admin action
-      const log: AdminLog = {
-        id: uuidv4(),
-        actionType: 'حذف مستخدم',
-        itemOrShiftAffected: userToDelete.username,
-        changeDetails: `تم حذف المستخدم: ${userToDelete.username}`,
-        timestamp: new Date(),
-        adminName: user?.username || ''
-      };
-      await db_service.saveAdminLog(log);
-
-      await loadData();
-    } catch (error) {
-      console.error('Error deleting user:', error);
-      setError('فشل في حذف المستخدم');
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const editUser = (userToEdit: User) => {
-    setEditingUser(userToEdit);
-    setUserForm({
-      username: userToEdit.username,
-      password: userToEdit.password,
-      role: userToEdit.role
-    });
-    setShowUserModal(true);
-  };
-
-  const resetUserForm = () => {
-    setEditingUser(null);
-    setUserForm({
-      username: '',
-      password: '',
-      role: 'normal'
-    });
   };
 
   // Supplement debt operations
-  const saveBaseDebt = async () => {
-    if (!debtForm.amount) {
-      setError('يرجى إدخال مبلغ الدين الأساسي');
-      return;
-    }
-
-    try {
-      setIsLoading(true);
-
-      const debt: SupplementDebt = {
-        amount: parseFloat(debtForm.amount),
-        lastUpdated: new Date(),
-        updatedBy: user?.username || ''
-      };
-
-      await db_service.saveSupplementDebt(debt);
-
-      // Log admin action
-      const log: AdminLog = {
-        id: uuidv4(),
-        actionType: 'تعديل الدين الأساسي',
-        itemOrShiftAffected: 'دين المكملات الغذائية',
-        changeDetails: `تم تعديل الدين الأساسي إلى ${debt.amount} جنيه`,
-        timestamp: new Date(),
-        adminName: user?.username || '',
-        section: 'supplement'
-      };
-      await db_service.saveAdminLog(log);
-
-      setDebtForm({ amount: '', note: '' });
-      setShowDebtModal(false);
-      setError('');
-      await loadData();
-    } catch (error) {
-      console.error('Error saving base debt:', error);
-      setError('فشل في حفظ الدين الأساسي');
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
   const saveDebtTransaction = async () => {
-    if (!debtTransactionForm.amount || !debtTransactionForm.note) {
-      setError('يرجى ملء جميع الحقول المطلوبة');
+    if (!debtForm.amount || !debtForm.note) {
+      setError('يرجى ملء جميع الحقول');
       return;
     }
 
@@ -657,325 +407,316 @@ const AdminView: React.FC<AdminViewProps> = ({ section }) => {
 
       const transaction: SupplementDebtTransaction = {
         id: uuidv4(),
-        type: debtTransactionForm.type,
-        amount: parseFloat(debtTransactionForm.amount),
-        note: debtTransactionForm.note,
+        type: debtForm.type,
+        amount: parseFloat(debtForm.amount),
+        note: debtForm.note,
         timestamp: new Date(),
         createdBy: user?.username || ''
       };
 
       await db_service.saveSupplementDebtTransaction(transaction);
 
-      // Log admin action
+      // Update debt amount
+      const currentDebt = supplementDebt?.amount || 0;
+      const newAmount = debtForm.type === 'debt' 
+        ? currentDebt + transaction.amount
+        : currentDebt - transaction.amount;
+
+      const updatedDebt: SupplementDebt = {
+        amount: Math.max(0, newAmount),
+        lastUpdated: new Date(),
+        updatedBy: user?.username || ''
+      };
+
+      await db_service.saveSupplementDebt(updatedDebt);
+
       const log: AdminLog = {
         id: uuidv4(),
-        actionType: transaction.type === 'payment' ? 'دفع دين' : 'إضافة دين',
-        itemOrShiftAffected: 'دين المكملات الغذائية',
-        changeDetails: `${transaction.type === 'payment' ? 'تم دفع' : 'تم إضافة'} مبلغ ${transaction.amount} جنيه - ${transaction.note}`,
+        actionType: 'debt_transaction',
+        itemOrShiftAffected: 'ديون المكملات',
+        changeDetails: `${debtForm.type === 'debt' ? 'إضافة دين' : 'دفع'}: ${transaction.amount} جنيه - ${transaction.note}`,
         timestamp: new Date(),
         adminName: user?.username || '',
         section: 'supplement'
       };
       await db_service.saveAdminLog(log);
 
-      setDebtTransactionForm({ type: 'payment', amount: '', note: '' });
-      setShowDebtTransactionModal(false);
-      setError('');
+      setDebtForm({ type: 'payment', amount: '', note: '' });
+      setShowDebtModal(false);
       await loadData();
     } catch (error) {
-      console.error('Error saving debt transaction:', error);
+      console.error('خطأ في حفظ معاملة الدين:', error);
       setError('فشل في حفظ معاملة الدين');
     } finally {
       setIsLoading(false);
     }
   };
 
-  // Calculate current debt
-  const getCurrentDebt = () => {
-    if (!supplementDebt) return 0;
-    
-    const baseDebt = supplementDebt.amount;
-    const transactionTotal = debtTransactions.reduce((total, transaction) => {
-      return transaction.type === 'payment' 
-        ? total - transaction.amount 
-        : total + transaction.amount;
-    }, 0);
-    
-    return baseDebt + transactionTotal;
+  // Customer operations
+  const openCustomerDetails = async (customer: Customer) => {
+    try {
+      setSelectedCustomer(customer);
+      const purchases = await db_service.getCustomerPurchases(customer.id);
+      setCustomerPurchases(purchases);
+      setShowCustomerDetailsModal(true);
+    } catch (error) {
+      console.error('خطأ في تحميل تفاصيل العميل:', error);
+      setError('فشل في تحميل تفاصيل العميل');
+    }
   };
 
-  // PDF generation
-  const generateShiftReport = () => {
-    generateShiftsPDF(shifts, section);
+  const deleteCustomer = async (customer: Customer) => {
+    if (!confirm(`هل أنت متأكد من حذف العميل "${customer.name}" وجميع بياناته؟`)) return;
+
+    try {
+      setIsLoading(true);
+
+      // Delete customer purchases
+      const purchases = await db_service.getCustomerPurchases(customer.id);
+      for (const purchase of purchases) {
+        const { error } = await supabase
+          .from('customer_purchases')
+          .delete()
+          .eq('id', purchase.id);
+        if (error) throw error;
+      }
+
+      // Delete customer
+      const { error } = await supabase
+        .from('customers')
+        .delete()
+        .eq('id', customer.id);
+      if (error) throw error;
+
+      const log: AdminLog = {
+        id: uuidv4(),
+        actionType: 'customer_deleted',
+        itemOrShiftAffected: customer.name,
+        changeDetails: `تم حذف العميل: ${customer.name} وجميع مشترياته`,
+        timestamp: new Date(),
+        adminName: user?.username || '',
+        section
+      };
+      await db_service.saveAdminLog(log);
+
+      await loadData();
+    } catch (error) {
+      console.error('خطأ في حذف العميل:', error);
+      setError('فشل في حذف العميل');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
-  const generateMonthlyReport = () => {
-    const currentMonth = new Date().toISOString().slice(0, 7);
-    generateMonthlySummaryPDF(shifts, items, section, currentMonth);
+  // Month reset operation
+  const resetMonth = async () => {
+    if (!confirm(`هل أنت متأكد من إعادة تعيين شهر ${section === 'store' ? 'البار' : 'المكملات الغذائية'}؟ سيتم أرشفة جميع البيانات الحالية.`)) return;
+
+    try {
+      setIsLoading(true);
+      await db_service.resetMonth(section, user?.username || '');
+      setShowResetMonthModal(false);
+      await loadData();
+      setError('');
+    } catch (error) {
+      console.error('خطأ في إعادة تعيين الشهر:', error);
+      setError('فشل في إعادة تعيين الشهر');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
-  // Dashboard calculations
-  const todayShifts = shifts.filter(shift => {
-    const today = new Date().toDateString();
-    return shift.startTime.toDateString() === today;
-  });
+  // Shift details
+  const openShiftDetails = async (shift: Shift) => {
+    try {
+      const fullShift = await db_service.getShift(shift.id);
+      if (fullShift) {
+        setSelectedShift(fullShift);
+        setShowShiftDetailsModal(true);
+      }
+    } catch (error) {
+      console.error('خطأ في تحميل تفاصيل الوردية:', error);
+      setError('فشل في تحميل تفاصيل الوردية');
+    }
+  };
 
-  const todayRevenue = todayShifts.reduce((sum, shift) => 
-    sum + shift.purchases.reduce((total, p) => total + (p.price * p.quantity), 0), 0
-  );
+  // Calculate statistics
+  const calculateStats = () => {
+    const today = new Date();
+    const todayShifts = shifts.filter(shift => 
+      shift.startTime.toDateString() === today.toDateString()
+    );
 
-  const todayExpenses = todayShifts.reduce((sum, shift) => 
-    sum + shift.expenses.reduce((total, e) => total + e.amount, 0), 0
-  );
+    let todayProfit = 0;
+    let monthlyRevenue = 0;
+    const topSellingItems: Record<string, { name: string; quantity: number; revenue: number }> = {};
 
-  const todayProfit = todayRevenue - todayExpenses;
+    shifts.forEach(shift => {
+      shift.purchases.forEach(purchase => {
+        const item = items.find(i => i.id === purchase.itemId);
+        if (item) {
+          const revenue = purchase.price * purchase.quantity;
+          const cost = item.costPrice * purchase.quantity;
+          const profit = revenue - cost;
 
-  const activeShift = shifts.find(shift => shift.status === 'active');
+          if (shift.startTime.toDateString() === today.toDateString()) {
+            todayProfit += profit;
+          }
 
-  const lowStockItems = items.filter(item => item.currentAmount < 5);
+          if (shift.startTime.getMonth() === today.getMonth()) {
+            monthlyRevenue += revenue;
+          }
 
-  const totalCustomerDebt = unpaidPurchases.reduce((sum, purchase) => sum + purchase.totalAmount, 0);
+          if (!topSellingItems[purchase.itemId]) {
+            topSellingItems[purchase.itemId] = {
+              name: purchase.name,
+              quantity: 0,
+              revenue: 0
+            };
+          }
+          topSellingItems[purchase.itemId].quantity += purchase.quantity;
+          topSellingItems[purchase.itemId].revenue += revenue;
+        }
+      });
+    });
 
-  const renderDashboard = () => (
+    const topItems = Object.values(topSellingItems)
+      .sort((a, b) => b.quantity - a.quantity)
+      .slice(0, 5);
+
+    const totalCustomers = customers.length;
+    const pendingCustomerDebt = unpaidPurchases.reduce((sum, p) => sum + p.totalAmount, 0);
+
+    return {
+      todayProfit,
+      activeShift: !!activeShift,
+      topSellingItems: topItems,
+      monthlyRevenue,
+      totalCustomers,
+      pendingCustomerDebt
+    };
+  };
+
+  const stats = calculateStats();
+
+  const renderInventoryTab = () => (
     <div className="space-y-6">
-      {/* Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        <div className="bg-white rounded-lg shadow-sm p-6">
+      {/* Statistics Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+        <div className="bg-white p-6 rounded-lg shadow-sm">
           <div className="flex items-center">
-            <div className="bg-green-100 p-3 rounded-lg">
+            <div className="p-2 bg-blue-100 rounded-lg">
+              <Package className="h-6 w-6 text-blue-600" />
+            </div>
+            <div className="mr-4">
+              <div className="text-2xl font-bold text-gray-900">{items.length}</div>
+              <div className="text-sm text-gray-600">إجمالي المنتجات</div>
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-white p-6 rounded-lg shadow-sm">
+          <div className="flex items-center">
+            <div className="p-2 bg-green-100 rounded-lg">
               <DollarSign className="h-6 w-6 text-green-600" />
             </div>
             <div className="mr-4">
-              <div className="text-2xl font-bold text-gray-900">{todayProfit.toFixed(2)} جنيه</div>
-              <div className="text-sm text-gray-600">ربح اليوم</div>
+              <div className="text-2xl font-bold text-gray-900">{stats.todayProfit.toFixed(2)}</div>
+              <div className="text-sm text-gray-600">ربح اليوم (جنيه)</div>
             </div>
           </div>
         </div>
 
-        <div className="bg-white rounded-lg shadow-sm p-6">
+        <div className="bg-white p-6 rounded-lg shadow-sm">
           <div className="flex items-center">
-            <div className="bg-blue-100 p-3 rounded-lg">
-              <TrendingUp className="h-6 w-6 text-blue-600" />
+            <div className="p-2 bg-purple-100 rounded-lg">
+              <TrendingUp className="h-6 w-6 text-purple-600" />
             </div>
             <div className="mr-4">
-              <div className="text-2xl font-bold text-gray-900">{todayRevenue.toFixed(2)} جنيه</div>
-              <div className="text-sm text-gray-600">مبيعات اليوم</div>
+              <div className="text-2xl font-bold text-gray-900">{stats.monthlyRevenue.toFixed(2)}</div>
+              <div className="text-sm text-gray-600">إيرادات الشهر (جنيه)</div>
             </div>
           </div>
         </div>
 
-        <div className="bg-white rounded-lg shadow-sm p-6">
+        <div className="bg-white p-6 rounded-lg shadow-sm">
           <div className="flex items-center">
-            <div className="bg-purple-100 p-3 rounded-lg">
-              <Users className="h-6 w-6 text-purple-600" />
+            <div className="p-2 bg-yellow-100 rounded-lg">
+              <Users className="h-6 w-6 text-yellow-600" />
             </div>
             <div className="mr-4">
-              <div className="text-2xl font-bold text-gray-900">{customers.length}</div>
+              <div className="text-2xl font-bold text-gray-900">{stats.totalCustomers}</div>
               <div className="text-sm text-gray-600">إجمالي العملاء</div>
             </div>
           </div>
         </div>
-
-        <div className="bg-white rounded-lg shadow-sm p-6">
-          <div className="flex items-center">
-            <div className="bg-red-100 p-3 rounded-lg">
-              <AlertTriangle className="h-6 w-6 text-red-600" />
-            </div>
-            <div className="mr-4">
-              <div className="text-2xl font-bold text-gray-900">{lowStockItems.length}</div>
-              <div className="text-sm text-gray-600">منتجات قليلة المخزون</div>
-            </div>
-          </div>
-        </div>
       </div>
 
-      {/* Active Shift Status */}
-      {activeShift && (
-        <div className="bg-white rounded-lg shadow-sm p-6">
-          <div className="flex justify-between items-center">
-            <div>
-              <h3 className="text-lg font-semibold text-gray-900">الوردية النشطة</h3>
-              <p className="text-gray-600">
-                بدأت: {activeShift.startTime.toLocaleString('ar-EG')} - المستخدم: {activeShift.username}
-              </p>
-            </div>
-            <div className="flex items-center space-x-2">
-              <div className="bg-green-100 text-green-800 px-3 py-1 rounded-full text-sm">
-                نشطة
-              </div>
-              <button
-                onClick={() => {
-                  setSelectedShift(activeShift);
-                  setShowShiftDetailsModal(true);
-                }}
-                className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg"
-              >
-                عرض التفاصيل
-              </button>
-            </div>
-          </div>
+      {/* Categories */}
+      <div className="bg-white rounded-lg shadow-sm p-6">
+        <div className="flex justify-between items-center mb-4">
+          <h3 className="text-lg font-semibold text-gray-900">الفئات</h3>
+          <button
+            onClick={() => setShowCategoryModal(true)}
+            className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg flex items-center space-x-2"
+          >
+            <Plus className="h-4 w-4" />
+            <span>إضافة فئة</span>
+          </button>
         </div>
-      )}
-
-      {/* Low Stock Alert */}
-      {lowStockItems.length > 0 && (
-        <div className="bg-white rounded-lg shadow-sm p-6">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
-            <AlertTriangle className="h-5 w-5 text-red-600 ml-2" />
-            تنبيه: منتجات قليلة المخزون
-          </h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {lowStockItems.map(item => (
-              <div key={item.id} className="bg-red-50 border border-red-200 rounded-lg p-4">
-                <div className="font-medium text-gray-900">{item.name}</div>
-                <div className="text-sm text-red-600">المخزون المتبقي: {item.currentAmount}</div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Customer Debt */}
-      {unpaidPurchases.length > 0 && (
-        <div className="bg-white rounded-lg shadow-sm p-6">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">ديون العملاء</h3>
-          <div className="mb-4">
-            <div className="text-2xl font-bold text-red-600">{totalCustomerDebt.toFixed(2)} جنيه</div>
-            <div className="text-sm text-gray-600">إجمالي الديون غير المدفوعة</div>
-          </div>
-          <div className="space-y-3">
-            {unpaidPurchases.slice(0, 5).map(purchase => (
-              <div key={purchase.id} className="flex justify-between items-center p-3 bg-yellow-50 rounded-lg">
+        
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {categories.map(category => (
+            <div key={category.id} className="border rounded-lg p-4">
+              <div className="flex justify-between items-center">
                 <div>
-                  <div className="font-medium">{purchase.customerName}</div>
+                  <div className="font-medium">{category.name}</div>
                   <div className="text-sm text-gray-600">
-                    {purchase.items.length} منتج - {purchase.totalAmount.toFixed(2)} جنيه
-                  </div>
-                  <div className="text-xs text-gray-500">
-                    {purchase.timestamp.toLocaleString('ar-EG')}
+                    {items.filter(i => i.categoryId === category.id).length} منتج
                   </div>
                 </div>
-                <button
-                  onClick={() => markAsPaid(purchase)}
-                  disabled={isLoading}
-                  className="bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded text-sm disabled:opacity-50"
-                >
-                  تحديد كمدفوع
-                </button>
+                <div className="flex space-x-2">
+                  <button
+                    onClick={() => openEditCategory(category)}
+                    className="text-blue-600 hover:text-blue-800"
+                  >
+                    <Edit className="h-4 w-4" />
+                  </button>
+                  <button
+                    onClick={() => deleteCategory(category)}
+                    className="text-red-600 hover:text-red-800"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </div>
               </div>
-            ))}
-          </div>
-          {unpaidPurchases.length > 5 && (
-            <div className="text-center mt-4">
-              <button
-                onClick={() => setActiveTab('customers')}
-                className="text-blue-600 hover:text-blue-700 text-sm"
-              >
-                عرض جميع الديون ({unpaidPurchases.length})
-              </button>
             </div>
-          )}
+          ))}
         </div>
-      )}
-
-      {/* Supplement Debt (only for supplement section) */}
-      {section === 'supplement' && (
-        <div className="bg-white rounded-lg shadow-sm p-6">
-          <div className="flex justify-between items-center mb-4">
-            <h3 className="text-lg font-semibold text-gray-900">إدارة ديون المكملات الغذائية</h3>
-            <div className="flex space-x-2">
-              <button
-                onClick={() => setShowDebtModal(true)}
-                className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm"
-              >
-                تعديل الدين الأساسي
-              </button>
-              <button
-                onClick={() => {
-                  setDebtTransactionForm({ type: 'payment', amount: '', note: '' });
-                  setShowDebtTransactionModal(true);
-                }}
-                className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm"
-              >
-                إضافة دفعة
-              </button>
-              <button
-                onClick={() => {
-                  setDebtTransactionForm({ type: 'debt', amount: '', note: '' });
-                  setShowDebtTransactionModal(true);
-                }}
-                className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg text-sm"
-              >
-                إضافة دين
-              </button>
-            </div>
-          </div>
-
-          <div className="mb-6">
-            <div className="text-3xl font-bold text-red-600">{getCurrentDebt().toFixed(2)} جنيه</div>
-            <div className="text-sm text-gray-600">إجمالي الدين الحالي</div>
-          </div>
-
-          {supplementDebt && (
-            <div className="mb-4 p-4 bg-blue-50 rounded-lg">
-              <div className="font-medium">الدين الأساسي: {supplementDebt.amount.toFixed(2)} جنيه</div>
-              <div className="text-sm text-gray-600">
-                آخر تحديث: {supplementDebt.lastUpdated.toLocaleString('ar-EG')} بواسطة {supplementDebt.updatedBy}
-              </div>
-            </div>
-          )}
-
-          {debtTransactions.length > 0 && (
-            <div>
-              <h4 className="font-medium text-gray-900 mb-3">سجل المعاملات</h4>
-              <div className="space-y-2 max-h-60 overflow-y-auto">
-                {debtTransactions.slice(0, 10).map(transaction => (
-                  <div key={transaction.id} className="flex justify-between items-center p-3 bg-gray-50 rounded-lg">
-                    <div>
-                      <div className="flex items-center space-x-2">
-                        <span className={`px-2 py-1 rounded text-xs ${
-                          transaction.type === 'payment' 
-                            ? 'bg-green-100 text-green-800' 
-                            : 'bg-red-100 text-red-800'
-                        }`}>
-                          {transaction.type === 'payment' ? 'دفعة' : 'دين'}
-                        </span>
-                        <span className="font-medium">
-                          {transaction.type === 'payment' ? '-' : '+'}{transaction.amount.toFixed(2)} جنيه
-                        </span>
-                      </div>
-                      <div className="text-sm text-gray-600">{transaction.note}</div>
-                      <div className="text-xs text-gray-500">
-                        {transaction.timestamp.toLocaleString('ar-EG')} - {transaction.createdBy}
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  );
-
-  const renderItems = () => (
-    <div className="space-y-6">
-      <div className="flex justify-between items-center">
-        <h2 className="text-2xl font-bold text-gray-900">إدارة المنتجات</h2>
-        <button
-          onClick={() => {
-            resetItemForm();
-            setShowItemModal(true);
-          }}
-          className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg flex items-center"
-        >
-          <Plus className="h-4 w-4 ml-2" />
-          إضافة منتج
-        </button>
       </div>
 
-      <div className="bg-white rounded-lg shadow-sm overflow-hidden">
+      {/* Items */}
+      <div className="bg-white rounded-lg shadow-sm p-6">
+        <div className="flex justify-between items-center mb-4">
+          <h3 className="text-lg font-semibold text-gray-900">المنتجات</h3>
+          <div className="flex space-x-2">
+            <button
+              onClick={() => setShowSupplyModal(true)}
+              className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg flex items-center space-x-2"
+            >
+              <Upload className="h-4 w-4" />
+              <span>إضافة توريد</span>
+            </button>
+            <button
+              onClick={() => setShowItemModal(true)}
+              className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg flex items-center space-x-2"
+            >
+              <Plus className="h-4 w-4" />
+              <span>إضافة منتج</span>
+            </button>
+          </div>
+        </div>
+
         <div className="overflow-x-auto">
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
@@ -984,16 +725,16 @@ const AdminView: React.FC<AdminViewProps> = ({ section }) => {
                   المنتج
                 </th>
                 <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  الفئة
+                </th>
+                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
                   سعر البيع
                 </th>
                 <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
                   سعر التكلفة
                 </th>
                 <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  المخزون
-                </th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  الفئة
+                  الكمية الحالية
                 </th>
                 <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
                   الإجراءات
@@ -1006,30 +747,41 @@ const AdminView: React.FC<AdminViewProps> = ({ section }) => {
                 return (
                   <tr key={item.id}>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="font-medium text-gray-900">{item.name}</div>
+                      <div className="flex items-center">
+                        {item.image && (
+                          <img
+                            src={item.image}
+                            alt={item.name}
+                            className="h-10 w-10 rounded-full object-cover ml-4"
+                          />
+                        )}
+                        <div className="text-sm font-medium text-gray-900">{item.name}</div>
+                      </div>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-gray-900">
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      {category?.name || 'بدون فئة'}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                       {item.sellPrice} جنيه
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-gray-900">
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                       {item.costPrice} جنيه
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <span className={`px-2 py-1 rounded-full text-xs ${
-                        item.currentAmount < 5 
-                          ? 'bg-red-100 text-red-800' 
-                          : 'bg-green-100 text-green-800'
+                      <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
+                        item.currentAmount > 10 
+                          ? 'bg-green-100 text-green-800'
+                          : item.currentAmount > 0
+                          ? 'bg-yellow-100 text-yellow-800'
+                          : 'bg-red-100 text-red-800'
                       }`}>
                         {item.currentAmount}
                       </span>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-gray-900">
-                      {category?.name || 'غير محدد'}
-                    </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                       <div className="flex space-x-2">
                         <button
-                          onClick={() => editItem(item)}
+                          onClick={() => openEditItem(item)}
                           className="text-blue-600 hover:text-blue-900"
                         >
                           <Edit className="h-4 w-4" />
@@ -1052,35 +804,20 @@ const AdminView: React.FC<AdminViewProps> = ({ section }) => {
     </div>
   );
 
-  const renderCategories = () => (
+  const renderCustomersTab = () => (
     <div className="space-y-6">
-      <div className="flex justify-between items-center">
-        <h2 className="text-2xl font-bold text-gray-900">إدارة الفئات</h2>
-        <button
-          onClick={() => {
-            resetCategoryForm();
-            setShowCategoryModal(true);
-          }}
-          className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg flex items-center"
-        >
-          <Plus className="h-4 w-4 ml-2" />
-          إضافة فئة
-        </button>
-      </div>
-
-      <div className="bg-white rounded-lg shadow-sm overflow-hidden">
+      <div className="bg-white rounded-lg shadow-sm p-6">
+        <h3 className="text-lg font-semibold text-gray-900 mb-4">العملاء</h3>
+        
         <div className="overflow-x-auto">
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
               <tr>
                 <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  اسم الفئة
+                  اسم العميل
                 </th>
                 <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  عدد المنتجات
-                </th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  تاريخ الإنشاء
+                  إجمالي الدين
                 </th>
                 <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
                   الإجراءات
@@ -1088,32 +825,37 @@ const AdminView: React.FC<AdminViewProps> = ({ section }) => {
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
-              {categories.map(category => {
-                const itemCount = items.filter(item => item.categoryId === category.id).length;
+              {customers.map(customer => {
+                const customerDebt = unpaidPurchases
+                  .filter(p => p.customerId === customer.id)
+                  .reduce((sum, p) => sum + p.totalAmount, 0);
+
                 return (
-                  <tr key={category.id}>
+                  <tr key={customer.id}>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="font-medium text-gray-900">{category.name}</div>
+                      <button
+                        onClick={() => openCustomerDetails(customer)}
+                        className="text-sm font-medium text-blue-600 hover:text-blue-800"
+                      >
+                        {customer.name}
+                      </button>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-gray-900">
-                      {itemCount}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-gray-900">
-                      {category.createdAt.toLocaleDateString('ar-EG')}
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      {customerDebt.toFixed(2)} جنيه
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                       <div className="flex space-x-2">
                         <button
-                          onClick={() => editCategory(category)}
-                          className="text-blue-600 hover:text-blue-900"
+                          onClick={() => openCustomerDetails(customer)}
+                          className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded text-sm"
                         >
-                          <Edit className="h-4 w-4" />
+                          عرض التفاصيل
                         </button>
                         <button
-                          onClick={() => deleteCategory(category)}
-                          className="text-red-600 hover:text-red-900"
+                          onClick={() => deleteCustomer(customer)}
+                          className="bg-red-600 hover:bg-red-700 text-white px-3 py-1 rounded text-sm"
                         >
-                          <Trash2 className="h-4 w-4" />
+                          حذف العميل
                         </button>
                       </div>
                     </td>
@@ -1127,107 +869,29 @@ const AdminView: React.FC<AdminViewProps> = ({ section }) => {
     </div>
   );
 
-  const renderCustomers = () => (
+  const renderShiftsTab = () => (
     <div className="space-y-6">
-      <div className="flex justify-between items-center">
-        <h2 className="text-2xl font-bold text-gray-900">إدارة العملاء</h2>
-        <button
-          onClick={() => {
-            resetCustomerForm();
-            setShowCustomerModal(true);
-          }}
-          className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg flex items-center"
-        >
-          <Plus className="h-4 w-4 ml-2" />
-          إضافة عميل
-        </button>
-      </div>
-
-      {/* Unpaid Purchases */}
-      {unpaidPurchases.length > 0 && (
-        <div className="bg-white rounded-lg shadow-sm p-6">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">المشتريات غير المدفوعة</h3>
-          <div className="space-y-3">
-            {unpaidPurchases.map(purchase => (
-              <div key={purchase.id} className="flex justify-between items-center p-4 bg-yellow-50 rounded-lg">
-                <div>
-                  <div className="font-medium">{purchase.customerName}</div>
-                  <div className="text-sm text-gray-600">
-                    {purchase.items.length} منتج - {purchase.totalAmount.toFixed(2)} جنيه
-                  </div>
-                  <div className="text-xs text-gray-500">
-                    {purchase.timestamp.toLocaleString('ar-EG')}
-                  </div>
-                </div>
-                <button
-                  onClick={() => markAsPaid(purchase)}
-                  disabled={isLoading}
-                  className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm disabled:opacity-50"
-                >
-                  تحديد كمدفوع
-                </button>
-              </div>
-            ))}
+      <div className="bg-white rounded-lg shadow-sm p-6">
+        <div className="flex justify-between items-center mb-4">
+          <h3 className="text-lg font-semibold text-gray-900">تاريخ الورديات</h3>
+          <div className="flex space-x-2">
+            <button
+              onClick={() => setShowResetMonthModal(true)}
+              className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg flex items-center space-x-2"
+            >
+              <RotateCcw className="h-4 w-4" />
+              <span>إعادة تعيين الشهر</span>
+            </button>
+            <button
+              onClick={() => generateShiftsPDF(shifts, section)}
+              className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg flex items-center space-x-2"
+            >
+              <Download className="h-4 w-4" />
+              <span>تصدير PDF</span>
+            </button>
           </div>
         </div>
-      )}
 
-      <div className="bg-white rounded-lg shadow-sm overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  اسم العميل
-                </th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  تاريخ الإنشاء
-                </th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  الإجراءات
-                </th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {customers.map(customer => (
-                <tr key={customer.id}>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="font-medium text-gray-900">{customer.name}</div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-gray-900">
-                    {customer.createdAt.toLocaleDateString('ar-EG')}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                    <button
-                      onClick={() => editCustomer(customer)}
-                      className="text-blue-600 hover:text-blue-900"
-                    >
-                      <Edit className="h-4 w-4" />
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-  );
-
-  const renderShifts = () => (
-    <div className="space-y-6">
-      <div className="flex justify-between items-center">
-        <h2 className="text-2xl font-bold text-gray-900">إدارة الورديات</h2>
-        <button
-          onClick={generateShiftReport}
-          className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg flex items-center"
-        >
-          <Download className="h-4 w-4 ml-2" />
-          تصدير تقرير
-        </button>
-      </div>
-
-      <div className="bg-white rounded-lg shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
@@ -1236,19 +900,22 @@ const AdminView: React.FC<AdminViewProps> = ({ section }) => {
                   معرف الوردية
                 </th>
                 <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  المستخدم
+                  تاريخ البداية
                 </th>
                 <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  وقت البداية
-                </th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  وقت النهاية
+                  تاريخ النهاية
                 </th>
                 <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
                   إجمالي النقدية
                 </th>
                 <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  الحالة
+                  المنتجات المباعة
+                </th>
+                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  حالة التحقق
+                </th>
+                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  المستخدم
                 </th>
                 <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
                   الإجراءات
@@ -1258,39 +925,36 @@ const AdminView: React.FC<AdminViewProps> = ({ section }) => {
             <tbody className="bg-white divide-y divide-gray-200">
               {shifts.map(shift => (
                 <tr key={shift.id}>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="font-mono text-sm">{shift.id.substring(0, 8)}</div>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                    {shift.id.substring(0, 8)}
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="font-medium text-gray-900">{shift.username}</div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-gray-900">
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                     {shift.startTime.toLocaleString('ar-EG')}
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-gray-900">
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                     {shift.endTime ? shift.endTime.toLocaleString('ar-EG') : 'نشطة'}
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-gray-900">
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                     {shift.totalAmount.toFixed(2)} جنيه
                   </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                    {shift.purchases.reduce((sum, p) => sum + p.quantity, 0)}
+                  </td>
                   <td className="px-6 py-4 whitespace-nowrap">
-                    <span className={`px-2 py-1 rounded-full text-xs ${
-                      shift.status === 'active' 
-                        ? 'bg-green-100 text-green-800' 
-                        : shift.validationStatus === 'balanced'
-                        ? 'bg-blue-100 text-blue-800'
+                    <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
+                      shift.validationStatus === 'balanced'
+                        ? 'bg-green-100 text-green-800'
                         : 'bg-red-100 text-red-800'
                     }`}>
-                      {shift.status === 'active' ? 'نشطة' : 
-                       shift.validationStatus === 'balanced' ? 'متوازنة' : 'بها تضارب'}
+                      {shift.validationStatus === 'balanced' ? 'متوازنة' : 'تضارب'}
                     </span>
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                    {shift.username}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                     <button
-                      onClick={() => {
-                        setSelectedShift(shift);
-                        setShowShiftDetailsModal(true);
-                      }}
+                      onClick={() => openShiftDetails(shift)}
                       className="text-blue-600 hover:text-blue-900"
                     >
                       <Eye className="h-4 w-4" />
@@ -1302,190 +966,197 @@ const AdminView: React.FC<AdminViewProps> = ({ section }) => {
           </table>
         </div>
       </div>
+
+      {/* Monthly Archives */}
+      {monthlyArchives.length > 0 && (
+        <div className="bg-white rounded-lg shadow-sm p-6">
+          <h3 className="text-lg font-semibold text-gray-900 mb-4">أرشيف الشهور</h3>
+          
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    الشهر
+                  </th>
+                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    السنة
+                  </th>
+                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    إجمالي الربح
+                  </th>
+                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    إجمالي الإيرادات
+                  </th>
+                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    عدد الورديات
+                  </th>
+                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    تاريخ الأرشفة
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {monthlyArchives.map(archive => (
+                  <tr key={archive.id}>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                      {archive.month}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      {archive.year}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      {archive.totalProfit.toFixed(2)} جنيه
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      {archive.totalRevenue.toFixed(2)} جنيه
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      {archive.shiftsCount}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      {archive.archivedAt.toLocaleDateString('ar-EG')}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
     </div>
   );
 
-  const renderSupplies = () => (
-    <div className="space-y-6">
-      <div className="flex justify-between items-center">
-        <h2 className="text-2xl font-bold text-gray-900">إدارة التوريدات</h2>
-        <button
-          onClick={() => {
-            resetSupplyForm();
-            setShowSupplyModal(true);
-          }}
-          className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg flex items-center"
-        >
-          <Plus className="h-4 w-4 ml-2" />
-          إضافة توريد
-        </button>
-      </div>
+  const renderSupplementDebtTab = () => {
+    if (section !== 'supplement') return null;
 
-      <div className="bg-white rounded-lg shadow-sm overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  التاريخ
-                </th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  التكلفة الإجمالية
-                </th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  المنشئ
-                </th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  عدد المنتجات
-                </th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {supplies.map(supply => (
-                <tr key={supply.id}>
-                  <td className="px-6 py-4 whitespace-nowrap text-gray-900">
-                    {supply.timestamp.toLocaleString('ar-EG')}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-gray-900">
-                    {supply.totalCost.toFixed(2)} جنيه
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-gray-900">
-                    {supply.createdBy}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-gray-900">
-                    {Object.values(supply.items).reduce((sum, qty) => sum + qty, 0)}
-                  </td>
+    const currentDebt = supplementDebt?.amount || 0;
+
+    return (
+      <div className="space-y-6">
+        <div className="bg-white rounded-lg shadow-sm p-6">
+          <div className="flex justify-between items-center mb-4">
+            <h3 className="text-lg font-semibold text-gray-900">إدارة ديون المكملات الغذائية</h3>
+            <button
+              onClick={() => setShowDebtModal(true)}
+              className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg flex items-center space-x-2"
+            >
+              <Plus className="h-4 w-4" />
+              <span>إضافة معاملة</span>
+            </button>
+          </div>
+
+          {/* Current Debt Display */}
+          <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-6">
+            <div className="text-center">
+              <div className="text-3xl font-bold text-yellow-800">{currentDebt.toFixed(2)} جنيه</div>
+              <div className="text-sm text-yellow-600">إجمالي الدين الحالي</div>
+              {supplementDebt && (
+                <div className="text-xs text-yellow-500 mt-1">
+                  آخر تحديث: {supplementDebt.lastUpdated.toLocaleString('ar-EG')} بواسطة {supplementDebt.updatedBy}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Transactions History */}
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    النوع
+                  </th>
+                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    المبلغ
+                  </th>
+                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    الملاحظة
+                  </th>
+                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    التاريخ
+                  </th>
+                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    بواسطة
+                  </th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {supplementDebtTransactions.map(transaction => (
+                  <tr key={transaction.id}>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
+                        transaction.type === 'payment'
+                          ? 'bg-green-100 text-green-800'
+                          : 'bg-red-100 text-red-800'
+                      }`}>
+                        {transaction.type === 'payment' ? 'دفع' : 'دين'}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      {transaction.amount.toFixed(2)} جنيه
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      {transaction.note}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      {transaction.timestamp.toLocaleString('ar-EG')}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      {transaction.createdBy}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
-    </div>
-  );
+    );
+  };
 
-  const renderUsers = () => (
+  const renderAdminLogsTab = () => (
     <div className="space-y-6">
-      <div className="flex justify-between items-center">
-        <h2 className="text-2xl font-bold text-gray-900">إدارة المستخدمين</h2>
-        <button
-          onClick={() => {
-            resetUserForm();
-            setShowUserModal(true);
-          }}
-          className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg flex items-center"
-        >
-          <Plus className="h-4 w-4 ml-2" />
-          إضافة مستخدم
-        </button>
-      </div>
-
-      <div className="bg-white rounded-lg shadow-sm overflow-hidden">
+      <div className="bg-white rounded-lg shadow-sm p-6">
+        <h3 className="text-lg font-semibold text-gray-900 mb-4">سجل الإجراءات الإدارية</h3>
+        
         <div className="overflow-x-auto">
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
               <tr>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  اسم المستخدم
-                </th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  الدور
-                </th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  تاريخ الإنشاء
-                </th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  الإجراءات
-                </th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {users.map(userItem => (
-                <tr key={userItem.id}>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="font-medium text-gray-900">{userItem.username}</div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <span className={`px-2 py-1 rounded-full text-xs ${
-                      userItem.role === 'admin' 
-                        ? 'bg-purple-100 text-purple-800' 
-                        : 'bg-gray-100 text-gray-800'
-                    }`}>
-                      {userItem.role === 'admin' ? 'مدير' : 'مستخدم عادي'}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-gray-900">
-                    {userItem.createdAt.toLocaleDateString('ar-EG')}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                    <div className="flex space-x-2">
-                      <button
-                        onClick={() => editUser(userItem)}
-                        className="text-blue-600 hover:text-blue-900"
-                      >
-                        <Edit className="h-4 w-4" />
-                      </button>
-                      <button
-                        onClick={() => deleteUser(userItem)}
-                        className="text-red-600 hover:text-red-900"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-  );
-
-  const renderLogs = () => (
-    <div className="space-y-6">
-      <h2 className="text-2xl font-bold text-gray-900">سجل أنشطة المدير</h2>
-
-      <div className="bg-white rounded-lg shadow-sm overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  التاريخ والوقت
-                </th>
                 <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
                   نوع الإجراء
                 </th>
                 <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  المنتج/الوردية المتأثرة
+                  العنصر المتأثر
                 </th>
                 <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
                   تفاصيل التغيير
                 </th>
                 <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  اسم المدير
+                  التاريخ
+                </th>
+                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  المدير
                 </th>
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
               {adminLogs.map(log => (
                 <tr key={log.id}>
-                  <td className="px-6 py-4 whitespace-nowrap text-gray-900">
-                    {log.timestamp.toLocaleString('ar-EG')}
+                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                    {log.actionType}
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <span className="px-2 py-1 rounded-full text-xs bg-blue-100 text-blue-800">
-                      {log.actionType}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-gray-900">
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                     {log.itemOrShiftAffected}
                   </td>
-                  <td className="px-6 py-4 text-gray-900">
+                  <td className="px-6 py-4 text-sm text-gray-900">
                     {log.changeDetails}
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-gray-900">
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                    {log.timestamp.toLocaleString('ar-EG')}
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                     {log.adminName}
                   </td>
                 </tr>
@@ -1497,70 +1168,72 @@ const AdminView: React.FC<AdminViewProps> = ({ section }) => {
     </div>
   );
 
-  const tabs = [
-    { id: 'dashboard', name: 'لوحة التحكم', icon: BarChart3 },
-    { id: 'items', name: 'المنتجات', icon: Package },
-    { id: 'categories', name: 'الفئات', icon: FileText },
-    { id: 'customers', name: 'العملاء', icon: Users },
-    { id: 'shifts', name: 'الورديات', icon: Clock },
-    { id: 'supplies', name: 'التوريدات', icon: TrendingUp },
-    { id: 'users', name: 'المستخدمين', icon: Settings },
-    { id: 'logs', name: 'سجل الأنشطة', icon: Activity }
-  ];
-
   return (
     <div className="space-y-6">
       {/* Error Display */}
       {error && (
         <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">
           {error}
+          <button
+            onClick={() => setError('')}
+            className="float-left text-red-500 hover:text-red-700"
+          >
+            <X className="h-4 w-4" />
+          </button>
         </div>
       )}
 
-      {/* Tab Navigation */}
+      {/* Tabs */}
       <div className="bg-white rounded-lg shadow-sm">
         <div className="border-b border-gray-200">
           <nav className="-mb-px flex space-x-8 px-6">
-            {tabs.map(tab => {
+            {[
+              { id: 'inventory', label: 'المخزون', icon: Package },
+              { id: 'customers', label: 'العملاء', icon: Users },
+              { id: 'shifts', label: 'الورديات', icon: Clock },
+              ...(section === 'supplement' ? [{ id: 'debt', label: 'الديون', icon: DollarSign }] : []),
+              { id: 'logs', label: 'السجل', icon: FileText }
+            ].map(tab => {
               const Icon = tab.icon;
               return (
                 <button
                   key={tab.id}
                   onClick={() => setActiveTab(tab.id)}
-                  className={`py-4 px-1 border-b-2 font-medium text-sm flex items-center ${
+                  className={`py-4 px-1 border-b-2 font-medium text-sm ${
                     activeTab === tab.id
                       ? 'border-blue-500 text-blue-600'
                       : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
                   }`}
                 >
-                  <Icon className="h-4 w-4 ml-2" />
-                  {tab.name}
+                  <div className="flex items-center space-x-2">
+                    <Icon className="h-4 w-4" />
+                    <span>{tab.label}</span>
+                  </div>
                 </button>
               );
             })}
           </nav>
         </div>
+
+        <div className="p-6">
+          {activeTab === 'inventory' && renderInventoryTab()}
+          {activeTab === 'customers' && renderCustomersTab()}
+          {activeTab === 'shifts' && renderShiftsTab()}
+          {activeTab === 'debt' && renderSupplementDebtTab()}
+          {activeTab === 'logs' && renderAdminLogsTab()}
+        </div>
       </div>
 
-      {/* Tab Content */}
-      <div>
-        {activeTab === 'dashboard' && renderDashboard()}
-        {activeTab === 'items' && renderItems()}
-        {activeTab === 'categories' && renderCategories()}
-        {activeTab === 'customers' && renderCustomers()}
-        {activeTab === 'shifts' && renderShifts()}
-        {activeTab === 'supplies' && renderSupplies()}
-        {activeTab === 'users' && renderUsers()}
-        {activeTab === 'logs' && renderLogs()}
-      </div>
-
+      {/* Modals */}
+      
       {/* Item Modal */}
       {showItemModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg p-6 w-full max-w-md">
             <h3 className="text-lg font-semibold mb-4">
-              {editingItem ? 'تعديل منتج' : 'إضافة منتج جديد'}
+              {editingItem ? 'تعديل المنتج' : 'إضافة منتج جديد'}
             </h3>
+            
             <div className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">اسم المنتج</label>
@@ -1572,9 +1245,26 @@ const AdminView: React.FC<AdminViewProps> = ({ section }) => {
                   placeholder="أدخل اسم المنتج"
                 />
               </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">الفئة</label>
+                <select
+                  value={itemForm.categoryId}
+                  onChange={(e) => setItemForm({ ...itemForm, categoryId: e.target.value })}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                >
+                  <option value="">بدون فئة</option>
+                  {categories.map(category => (
+                    <option key={category.id} value={category.id}>
+                      {category.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">سعر البيع</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">سعر البيع (جنيه)</label>
                   <input
                     type="number"
                     value={itemForm.sellPrice}
@@ -1584,7 +1274,7 @@ const AdminView: React.FC<AdminViewProps> = ({ section }) => {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">سعر التكلفة</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">سعر التكلفة (جنيه)</label>
                   <input
                     type="number"
                     value={itemForm.costPrice}
@@ -1594,6 +1284,7 @@ const AdminView: React.FC<AdminViewProps> = ({ section }) => {
                   />
                 </div>
               </div>
+
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">الكمية الحالية</label>
                 <input
@@ -1604,23 +1295,9 @@ const AdminView: React.FC<AdminViewProps> = ({ section }) => {
                   placeholder="0"
                 />
               </div>
+
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">الفئة</label>
-                <select
-                  value={itemForm.categoryId}
-                  onChange={(e) => setItemForm({ ...itemForm, categoryId: e.target.value })}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2"
-                >
-                  <option value="">اختر فئة</option>
-                  {categories.map(category => (
-                    <option key={category.id} value={category.id}>
-                      {category.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">رابط الصورة (اختياري)</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">رابط الصورة</label>
                 <input
                   type="url"
                   value={itemForm.image}
@@ -1630,9 +1307,13 @@ const AdminView: React.FC<AdminViewProps> = ({ section }) => {
                 />
               </div>
             </div>
+
             <div className="flex space-x-3 mt-6">
               <button
-                onClick={() => setShowItemModal(false)}
+                onClick={() => {
+                  setShowItemModal(false);
+                  resetItemForm();
+                }}
                 className="flex-1 bg-gray-300 hover:bg-gray-400 text-gray-700 py-2 rounded-lg"
               >
                 إلغاء
@@ -1654,21 +1335,28 @@ const AdminView: React.FC<AdminViewProps> = ({ section }) => {
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg p-6 w-full max-w-md">
             <h3 className="text-lg font-semibold mb-4">
-              {editingCategory ? 'تعديل فئة' : 'إضافة فئة جديدة'}
+              {editingCategory ? 'تعديل الفئة' : 'إضافة فئة جديدة'}
             </h3>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">اسم الفئة</label>
-              <input
-                type="text"
-                value={categoryForm.name}
-                onChange={(e) => setCategoryForm({ ...categoryForm, name: e.target.value })}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2"
-                placeholder="أدخل اسم الفئة"
-              />
+            
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">اسم الفئة</label>
+                <input
+                  type="text"
+                  value={categoryForm.name}
+                  onChange={(e) => setCategoryForm({ ...categoryForm, name: e.target.value })}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                  placeholder="أدخل اسم الفئة"
+                />
+              </div>
             </div>
+
             <div className="flex space-x-3 mt-6">
               <button
-                onClick={() => setShowCategoryModal(false)}
+                onClick={() => {
+                  setShowCategoryModal(false);
+                  resetCategoryForm();
+                }}
                 className="flex-1 bg-gray-300 hover:bg-gray-400 text-gray-700 py-2 rounded-lg"
               >
                 إلغاء
@@ -1685,86 +1373,67 @@ const AdminView: React.FC<AdminViewProps> = ({ section }) => {
         </div>
       )}
 
-      {/* Customer Modal */}
-      {showCustomerModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-full max-w-md">
-            <h3 className="text-lg font-semibold mb-4">
-              {editingCustomer ? 'تعديل عميل' : 'إضافة عميل جديد'}
-            </h3>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">اسم العميل</label>
-              <input
-                type="text"
-                value={customerForm.name}
-                onChange={(e) => setCustomerForm({ ...customerForm, name: e.target.value })}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2"
-                placeholder="أدخل اسم العميل"
-              />
-            </div>
-            <div className="flex space-x-3 mt-6">
-              <button
-                onClick={() => setShowCustomerModal(false)}
-                className="flex-1 bg-gray-300 hover:bg-gray-400 text-gray-700 py-2 rounded-lg"
-              >
-                إلغاء
-              </button>
-              <button
-                onClick={saveCustomer}
-                disabled={isLoading}
-                className="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-2 rounded-lg disabled:opacity-50"
-              >
-                {isLoading ? 'جاري الحفظ...' : 'حفظ'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* Supply Modal */}
       {showSupplyModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+          <div className="bg-white rounded-lg p-6 w-full max-w-4xl max-h-[90vh] overflow-y-auto">
             <h3 className="text-lg font-semibold mb-4">إضافة توريد جديد</h3>
+            
             <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">كميات المنتجات</label>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-h-60 overflow-y-auto">
-                  {items.map(item => (
-                    <div key={item.id} className="flex justify-between items-center p-3 bg-gray-50 rounded-lg">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {items.map(item => (
+                  <div key={item.id} className="border rounded-lg p-4">
+                    <div className="flex justify-between items-center mb-2">
                       <div>
                         <div className="font-medium">{item.name}</div>
-                        <div className="text-sm text-gray-600">المخزون الحالي: {item.currentAmount}</div>
+                        <div className="text-sm text-gray-600">
+                          الكمية الحالية: {item.currentAmount}
+                        </div>
+                        <div className="text-sm text-gray-600">
+                          سعر التكلفة: {item.costPrice} جنيه
+                        </div>
                       </div>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        كمية التوريد
+                      </label>
                       <input
                         type="number"
-                        value={supplyForm.items[item.id] || 0}
+                        value={supplyForm[item.id] || '0'}
                         onChange={(e) => setSupplyForm({
                           ...supplyForm,
-                          items: {
-                            ...supplyForm.items,
-                            [item.id]: parseInt(e.target.value) || 0
-                          }
+                          [item.id]: e.target.value
                         })}
-                
-                        className="w-20 border border-gray-300 rounded px-2 py-1 text-center"
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2"
                         min="0"
                       />
                     </div>
-                  ))}
+                  </div>
+                ))}
+              </div>
+
+              {/* Total Cost Display */}
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                <div className="text-center">
+                  <div className="text-2xl font-bold text-blue-800">
+                    {Object.entries(supplyForm)
+                      .reduce((total, [itemId, quantity]) => {
+                        const item = items.find(i => i.id === itemId);
+                        return total + (item ? item.costPrice * parseInt(quantity || '0') : 0);
+                      }, 0)
+                      .toFixed(2)} جنيه
+                  </div>
+                  <div className="text-sm text-blue-600">إجمالي تكلفة التوريد</div>
+                  {activeShift && (
+                    <div className="text-xs text-blue-500 mt-1">
+                      سيتم خصم هذا المبلغ من الوردية النشطة كمصروف
+                    </div>
+                  )}
                 </div>
               </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">التكلفة الإجمالية (جنيه)</label>
-                <input
-                  type="number"
-                  value={supplyForm.totalCost}
-                  onChange={(e) => setSupplyForm({ ...supplyForm, totalCost: e.target.value })}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2"
-                  placeholder="0.00"
-                />
-              </div>
             </div>
+
             <div className="flex space-x-3 mt-6">
               <button
                 onClick={() => setShowSupplyModal(false)}
@@ -1773,70 +1442,11 @@ const AdminView: React.FC<AdminViewProps> = ({ section }) => {
                 إلغاء
               </button>
               <button
-                onClick={saveSupply}
+                onClick={addSupply}
                 disabled={isLoading}
-                className="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-2 rounded-lg disabled:opacity-50"
+                className="flex-1 bg-green-600 hover:bg-green-700 text-white py-2 rounded-lg disabled:opacity-50"
               >
-                {isLoading ? 'جاري الحفظ...' : 'حفظ التوريد'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* User Modal */}
-      {showUserModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-full max-w-md">
-            <h3 className="text-lg font-semibold mb-4">
-              {editingUser ? 'تعديل مستخدم' : 'إضافة مستخدم جديد'}
-            </h3>
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">اسم المستخدم</label>
-                <input
-                  type="text"
-                  value={userForm.username}
-                  onChange={(e) => setUserForm({ ...userForm, username: e.target.value })}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2"
-                  placeholder="أدخل اسم المستخدم"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">كلمة المرور</label>
-                <input
-                  type="password"
-                  value={userForm.password}
-                  onChange={(e) => setUserForm({ ...userForm, password: e.target.value })}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2"
-                  placeholder="أدخل كلمة المرور"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">الدور</label>
-                <select
-                  value={userForm.role}
-                  onChange={(e) => setUserForm({ ...userForm, role: e.target.value as 'normal' | 'admin' })}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2"
-                >
-                  <option value="normal">مستخدم عادي</option>
-                  <option value="admin">مدير</option>
-                </select>
-              </div>
-            </div>
-            <div className="flex space-x-3 mt-6">
-              <button
-                onClick={() => setShowUserModal(false)}
-                className="flex-1 bg-gray-300 hover:bg-gray-400 text-gray-700 py-2 rounded-lg"
-              >
-                إلغاء
-              </button>
-              <button
-                onClick={saveUser}
-                disabled={isLoading}
-                className="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-2 rounded-lg disabled:opacity-50"
-              >
-                {isLoading ? 'جاري الحفظ...' : 'حفظ'}
+                {isLoading ? 'جاري الإضافة...' : 'إضافة التوريد'}
               </button>
             </div>
           </div>
@@ -1844,13 +1454,26 @@ const AdminView: React.FC<AdminViewProps> = ({ section }) => {
       )}
 
       {/* Debt Modal */}
-      {showDebtModal && (
+      {showDebtModal && section === 'supplement' && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg p-6 w-full max-w-md">
-            <h3 className="text-lg font-semibold mb-4">تعديل الدين الأساسي</h3>
+            <h3 className="text-lg font-semibold mb-4">إضافة معاملة دين</h3>
+            
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">مبلغ الدين الأساسي (جنيه)</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">نوع المعاملة</label>
+                <select
+                  value={debtForm.type}
+                  onChange={(e) => setDebtForm({ ...debtForm, type: e.target.value as 'payment' | 'debt' })}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                >
+                  <option value="payment">دفع</option>
+                  <option value="debt">دين جديد</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">المبلغ (جنيه)</label>
                 <input
                   type="number"
                   value={debtForm.amount}
@@ -1859,17 +1482,19 @@ const AdminView: React.FC<AdminViewProps> = ({ section }) => {
                   placeholder="0.00"
                 />
               </div>
+
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">ملاحظة</label>
-                <input
-                  type="text"
+                <label className="block text-sm font-medium text-gray-700 mb-1">الملاحظة</label>
+                <textarea
                   value={debtForm.note}
                   onChange={(e) => setDebtForm({ ...debtForm, note: e.target.value })}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2"
-                  placeholder="أدخل ملاحظة"
+                  rows={3}
+                  placeholder="أدخل تفاصيل المعاملة..."
                 />
               </div>
             </div>
+
             <div className="flex space-x-3 mt-6">
               <button
                 onClick={() => setShowDebtModal(false)}
@@ -1878,7 +1503,7 @@ const AdminView: React.FC<AdminViewProps> = ({ section }) => {
                 إلغاء
               </button>
               <button
-                onClick={saveBaseDebt}
+                onClick={saveDebtTransaction}
                 disabled={isLoading}
                 className="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-2 rounded-lg disabled:opacity-50"
               >
@@ -1889,52 +1514,48 @@ const AdminView: React.FC<AdminViewProps> = ({ section }) => {
         </div>
       )}
 
-      {/* Debt Transaction Modal */}
-      {showDebtTransactionModal && (
+      {/* Reset Month Modal */}
+      {showResetMonthModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg p-6 w-full max-w-md">
-            <h3 className="text-lg font-semibold mb-4">
-              {debtTransactionForm.type === 'payment' ? 'إضافة دفعة' : 'إضافة دين'}
-            </h3>
+            <h3 className="text-lg font-semibold mb-4">إعادة تعيين الشهر</h3>
+            
             <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">المبلغ (جنيه)</label>
-                <input
-                  type="number"
-                  value={debtTransactionForm.amount}
-                  onChange={(e) => setDebtTransactionForm({ ...debtTransactionForm, amount: e.target.value })}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2"
-                  placeholder="0.00"
-                />
+              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                <div className="flex items-center">
+                  <AlertTriangle className="h-5 w-5 text-yellow-600 ml-2" />
+                  <div className="text-sm text-yellow-800">
+                    <div className="font-medium">تحذير!</div>
+                    <div>سيتم أرشفة جميع الورديات والبيانات الحالية وإعادة تعيين النظام للشهر الجديد.</div>
+                  </div>
+                </div>
               </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">ملاحظة</label>
-                <input
-                  type="text"
-                  value={debtTransactionForm.note}
-                  onChange={(e) => setDebtTransactionForm({ ...debtTransactionForm, note: e.target.value })}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2"
-                  placeholder="أدخل ملاحظة"
-                />
+
+              <div className="text-sm text-gray-600">
+                <div className="font-medium mb-2">ما سيحدث:</div>
+                <ul className="list-disc list-inside space-y-1">
+                  <li>أرشفة جميع الورديات الحالية</li>
+                  <li>حفظ إحصائيات الشهر</li>
+                  <li>الاحتفاظ بالمخزون الحالي</li>
+                  <li>الاحتفاظ بقائمة العملاء</li>
+                  <li>مسح تاريخ الورديات</li>
+                </ul>
               </div>
             </div>
+
             <div className="flex space-x-3 mt-6">
               <button
-                onClick={() => setShowDebtTransactionModal(false)}
+                onClick={() => setShowResetMonthModal(false)}
                 className="flex-1 bg-gray-300 hover:bg-gray-400 text-gray-700 py-2 rounded-lg"
               >
                 إلغاء
               </button>
               <button
-                onClick={saveDebtTransaction}
+                onClick={resetMonth}
                 disabled={isLoading}
-                className={`flex-1 py-2 rounded-lg text-white disabled:opacity-50 ${
-                  debtTransactionForm.type === 'payment' 
-                    ? 'bg-green-600 hover:bg-green-700' 
-                    : 'bg-red-600 hover:bg-red-700'
-                }`}
+                className="flex-1 bg-red-600 hover:bg-red-700 text-white py-2 rounded-lg disabled:opacity-50"
               >
-                {isLoading ? 'جاري الحفظ...' : 'حفظ'}
+                {isLoading ? 'جاري إعادة التعيين...' : 'إعادة تعيين الشهر'}
               </button>
             </div>
           </div>
@@ -1945,113 +1566,212 @@ const AdminView: React.FC<AdminViewProps> = ({ section }) => {
       {showShiftDetailsModal && selectedShift && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg p-6 w-full max-w-4xl max-h-[90vh] overflow-y-auto">
-            <div className="flex justify-between items-center mb-6">
-              <h3 className="text-lg font-semibold">تفاصيل الوردية</h3>
-              <button
-                onClick={() => setShowShiftDetailsModal(false)}
-                className="text-gray-400 hover:text-gray-600"
-              >
-                <X className="h-6 w-6" />
-              </button>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {/* Shift Info */}
-              <div className="space-y-4">
-                <div>
-                  <h4 className="font-medium text-gray-900 mb-2">معلومات الوردية</h4>
-                  <div className="bg-gray-50 p-4 rounded-lg space-y-2">
-                    <div><span className="font-medium">المعرف:</span> {selectedShift.id.substring(0, 8)}</div>
-                    <div><span className="font-medium">المستخدم:</span> {selectedShift.username}</div>
-                    <div><span className="font-medium">وقت البداية:</span> {selectedShift.startTime.toLocaleString('ar-EG')}</div>
-                    <div><span className="font-medium">وقت النهاية:</span> {selectedShift.endTime ? selectedShift.endTime.toLocaleString('ar-EG') : 'نشطة'}</div>
-                    <div><span className="font-medium">الحالة:</span> {selectedShift.status === 'active' ? 'نشطة' : 'مغلقة'}</div>
-                    <div><span className="font-medium">حالة التحقق:</span> {selectedShift.validationStatus === 'balanced' ? 'متوازنة' : 'بها تضارب'}</div>
+            <h3 className="text-lg font-semibold mb-4">تفاصيل الوردية</h3>
+            
+            <div className="space-y-6">
+              {/* Shift Summary */}
+              <div className="bg-gray-50 rounded-lg p-4">
+                <h4 className="font-medium mb-2">ملخص الوردية</h4>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                  <div>
+                    <div className="text-gray-600">معرف الوردية</div>
+                    <div className="font-medium">{selectedShift.id.substring(0, 8)}</div>
                   </div>
-                </div>
-
-                {/* Financial Summary */}
-                <div>
-                  <h4 className="font-medium text-gray-900 mb-2">الملخص المالي</h4>
-                  <div className="bg-gray-50 p-4 rounded-lg space-y-2">
-                    <div><span className="font-medium">إجمالي المبيعات:</span> {selectedShift.purchases.reduce((sum, p) => sum + (p.price * p.quantity), 0).toFixed(2)} جنيه</div>
-                    <div><span className="font-medium">إجمالي المصروفات:</span> {selectedShift.expenses.reduce((sum, e) => sum + e.amount, 0).toFixed(2)} جنيه</div>
-                    <div><span className="font-medium">الأموال الخارجية:</span> {selectedShift.externalMoney.reduce((sum, e) => sum + e.amount, 0).toFixed(2)} جنيه</div>
-                    <div><span className="font-medium">إجمالي النقدية:</span> {selectedShift.totalAmount.toFixed(2)} جنيه</div>
-                    {selectedShift.finalCash !== undefined && (
-                      <div><span className="font-medium">النقدية النهائية:</span> {selectedShift.finalCash.toFixed(2)} جنيه</div>
-                    )}
+                  <div>
+                    <div className="text-gray-600">تاريخ البداية</div>
+                    <div className="font-medium">{selectedShift.startTime.toLocaleString('ar-EG')}</div>
+                  </div>
+                  <div>
+                    <div className="text-gray-600">تاريخ النهاية</div>
+                    <div className="font-medium">
+                      {selectedShift.endTime ? selectedShift.endTime.toLocaleString('ar-EG') : 'نشطة'}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-gray-600">إجمالي النقدية</div>
+                    <div className="font-medium">{selectedShift.totalAmount.toFixed(2)} جنيه</div>
+                  </div>
+                  <div>
+                    <div className="text-gray-600">المنتجات المباعة</div>
+                    <div className="font-medium">
+                      {selectedShift.purchases.reduce((sum, p) => sum + p.quantity, 0)}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-gray-600">حالة التحقق</div>
+                    <div className={`font-medium ${
+                      selectedShift.validationStatus === 'balanced' ? 'text-green-600' : 'text-red-600'
+                    }`}>
+                      {selectedShift.validationStatus === 'balanced' ? 'متوازنة' : 'تضارب'}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-gray-600">فتح بواسطة</div>
+                    <div className="font-medium">{selectedShift.username}</div>
+                  </div>
+                  <div>
+                    <div className="text-gray-600">أغلق بواسطة</div>
+                    <div className="font-medium">
+                      {selectedShift.status === 'closed' ? selectedShift.username : '-'}
+                    </div>
                   </div>
                 </div>
               </div>
 
               {/* Purchases */}
-              <div className="space-y-4">
+              {selectedShift.purchases.length > 0 && (
                 <div>
-                  <h4 className="font-medium text-gray-900 mb-2">المشتريات ({selectedShift.purchases.length})</h4>
-                  <div className="bg-gray-50 p-4 rounded-lg max-h-40 overflow-y-auto">
-                    {selectedShift.purchases.map((purchase, index) => (
-                      <div key={index} className="flex justify-between items-center py-1">
-                        <span>{purchase.name} x{purchase.quantity}</span>
-                        <span>{(purchase.price * purchase.quantity).toFixed(2)} جنيه</span>
+                  <h4 className="font-medium mb-2">المبيعات</h4>
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full divide-y divide-gray-200">
+                      <thead className="bg-gray-50">
+                        <tr>
+                          <th className="px-4 py-2 text-right text-xs font-medium text-gray-500">المنتج</th>
+                          <th className="px-4 py-2 text-right text-xs font-medium text-gray-500">الكمية</th>
+                          <th className="px-4 py-2 text-right text-xs font-medium text-gray-500">السعر</th>
+                          <th className="px-4 py-2 text-right text-xs font-medium text-gray-500">الإجمالي</th>
+                        </tr>
+                      </thead>
+                      <tbody className="bg-white divide-y divide-gray-200">
+                        {selectedShift.purchases.map((purchase, index) => (
+                          <tr key={index}>
+                            <td className="px-4 py-2 text-sm">{purchase.name}</td>
+                            <td className="px-4 py-2 text-sm">{purchase.quantity}</td>
+                            <td className="px-4 py-2 text-sm">{purchase.price} جنيه</td>
+                            <td className="px-4 py-2 text-sm">{(purchase.price * purchase.quantity).toFixed(2)} جنيه</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {/* Expenses */}
+              {selectedShift.expenses.length > 0 && (
+                <div>
+                  <h4 className="font-medium mb-2">المصروفات</h4>
+                  <div className="space-y-2">
+                    {selectedShift.expenses.map(expense => (
+                      <div key={expense.id} className="bg-red-50 border border-red-200 rounded-lg p-3">
+                        <div className="flex justify-between items-center">
+                          <div>
+                            <div className="font-medium">{expense.reason}</div>
+                            <div className="text-sm text-gray-600">
+                              {expense.timestamp.toLocaleString('ar-EG')} - {expense.createdBy}
+                            </div>
+                          </div>
+                          <div className="text-red-600 font-medium">{expense.amount.toFixed(2)} جنيه</div>
+                        </div>
                       </div>
                     ))}
                   </div>
                 </div>
+              )}
 
-                {/* Expenses */}
-                {selectedShift.expenses.length > 0 && (
-                  <div>
-                    <h4 className="font-medium text-gray-900 mb-2">المصروفات ({selectedShift.expenses.length})</h4>
-                    <div className="bg-gray-50 p-4 rounded-lg max-h-40 overflow-y-auto">
-                      {selectedShift.expenses.map((expense) => (
-                        <div key={expense.id} className="flex justify-between items-center py-1">
-                          <span>{expense.reason}</span>
-                          <span>{expense.amount.toFixed(2)} جنيه</span>
+              {/* External Money */}
+              {selectedShift.externalMoney.length > 0 && (
+                <div>
+                  <h4 className="font-medium mb-2">الأموال الخارجية</h4>
+                  <div className="space-y-2">
+                    {selectedShift.externalMoney.map(money => (
+                      <div key={money.id} className="bg-purple-50 border border-purple-200 rounded-lg p-3">
+                        <div className="flex justify-between items-center">
+                          <div>
+                            <div className="font-medium">{money.reason}</div>
+                            <div className="text-sm text-gray-600">
+                              {money.timestamp.toLocaleString('ar-EG')} - {money.createdBy}
+                            </div>
+                          </div>
+                          <div className="text-purple-600 font-medium">{money.amount.toFixed(2)} جنيه</div>
                         </div>
-                      ))}
-                    </div>
+                      </div>
+                    ))}
                   </div>
-                )}
+                </div>
+              )}
 
-                {/* External Money */}
-                {selectedShift.externalMoney.length > 0 && (
-                  <div>
-                    <h4 className="font-medium text-gray-900 mb-2">الأموال الخارجية ({selectedShift.externalMoney.length})</h4>
-                    <div className="bg-gray-50 p-4 rounded-lg max-h-40 overflow-y-auto">
-                      {selectedShift.externalMoney.map((money) => (
-                        <div key={money.id} className="flex justify-between items-center py-1">
-                          <span>{money.reason}</span>
-                          <span>{money.amount.toFixed(2)} جنيه</span>
-                        </div>
+              {/* Discrepancies */}
+              {selectedShift.discrepancies && selectedShift.discrepancies.length > 0 && (
+                <div>
+                  <h4 className="font-medium mb-2">التضاربات</h4>
+                  <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                    <ul className="list-disc list-inside space-y-1">
+                      {selectedShift.discrepancies.map((discrepancy, index) => (
+                        <li key={index} className="text-sm text-yellow-800">{discrepancy}</li>
                       ))}
-                    </div>
+                    </ul>
                   </div>
-                )}
-              </div>
+                </div>
+              )}
+
+              {/* Close Reason */}
+              {selectedShift.closeReason && (
+                <div>
+                  <h4 className="font-medium mb-2">سبب الإغلاق</h4>
+                  <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+                    <div className="text-sm text-gray-800">{selectedShift.closeReason}</div>
+                  </div>
+                </div>
+              )}
             </div>
 
-            {/* Discrepancies */}
-            {selectedShift.discrepancies && selectedShift.discrepancies.length > 0 && (
-              <div className="mt-6">
-                <h4 className="font-medium text-gray-900 mb-2">التضاربات</h4>
-                <div className="bg-red-50 p-4 rounded-lg">
-                  {selectedShift.discrepancies.map((discrepancy, index) => (
-                    <div key={index} className="text-red-700 py-1">{discrepancy}</div>
-                  ))}
-                </div>
-              </div>
-            )}
+            <div className="flex justify-end mt-6">
+              <button
+                onClick={() => setShowShiftDetailsModal(false)}
+                className="bg-gray-300 hover:bg-gray-400 text-gray-700 px-4 py-2 rounded-lg"
+              >
+                إغلاق
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
-            {/* Close Reason */}
-            {selectedShift.closeReason && (
-              <div className="mt-6">
-                <h4 className="font-medium text-gray-900 mb-2">ملاحظات الإغلاق</h4>
-                <div className="bg-gray-50 p-4 rounded-lg">
-                  {selectedShift.closeReason}
+      {/* Customer Details Modal */}
+      {showCustomerDetailsModal && selectedCustomer && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-4xl max-h-[90vh] overflow-y-auto">
+            <h3 className="text-lg font-semibold mb-4">تفاصيل العميل: {selectedCustomer.name}</h3>
+            
+            <div className="space-y-4">
+              {customerPurchases.map(purchase => (
+                <div key={purchase.id} className="border rounded-lg p-4">
+                  <div className="flex justify-between items-start mb-2">
+                    <div>
+                      <div className="font-medium">المبلغ: {purchase.totalAmount.toFixed(2)} جنيه</div>
+                      <div className="text-sm text-gray-600">
+                        التاريخ: {purchase.timestamp.toLocaleString('ar-EG')}
+                      </div>
+                      <div className="text-sm text-gray-600">
+                        الحالة: {purchase.isPaid ? 'مدفوع' : 'غير مدفوع'}
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <div className="mt-2">
+                    <div className="text-sm font-medium text-gray-700 mb-1">المنتجات:</div>
+                    <div className="space-y-1">
+                      {purchase.items.map((item, index) => (
+                        <div key={index} className="text-sm text-gray-600 flex justify-between">
+                          <span>{item.name} × {item.quantity}</span>
+                          <span>{(item.price * item.quantity).toFixed(2)} جنيه</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
                 </div>
-              </div>
-            )}
+              ))}
+            </div>
+
+            <div className="flex justify-end space-x-3 mt-6">
+              <button
+                onClick={() => setShowCustomerDetailsModal(false)}
+                className="bg-gray-300 hover:bg-gray-400 text-gray-700 px-4 py-2 rounded-lg"
+              >
+                إغلاق
+              </button>
+            </div>
           </div>
         </div>
       )}
