@@ -2,7 +2,7 @@ import { supabase } from '../lib/supabase';
 import { v4 as uuidv4 } from 'uuid';
 import { 
   User, Item, Shift, Supply, Payment, DailySummary, MonthlySummary, 
-  SupplementDebt, Category, Customer, CustomerPurchase, Expense, ShiftEdit, AdminLog, ExternalMoney, SupplementDebtTransaction 
+  SupplementDebt, Category, Customer, CustomerPurchase, Expense, ShiftEdit, AdminLog, ExternalMoney, SupplementDebtTransaction, MonthlyArchive, CustomerDebtDetails 
 } from '../types';
 import { realtimeService } from './realtime';
 
@@ -142,6 +142,172 @@ class DatabaseService {
       this.broadcastUpdate('ITEM_UPDATED', { type: 'user_deleted', id });
     } catch (error) {
       this.handleError(error, 'deleteUser');
+    }
+  }
+
+  // Monthly archive operations
+  async saveMonthlyArchive(archive: MonthlyArchive): Promise<void> {
+    try {
+      const { error } = await supabase.from('monthly_archives').insert({
+        id: archive.id,
+        month: archive.month,
+        year: archive.year,
+        section: archive.section,
+        total_profit: archive.totalProfit.toString(),
+        total_cost: archive.totalCost.toString(),
+        total_revenue: archive.totalRevenue.toString(),
+        items_sold: archive.itemsSold,
+        shifts_count: archive.shiftsCount,
+        archived_at: archive.archivedAt.toISOString(),
+        archived_by: archive.archivedBy,
+      });
+
+      if (error) throw error;
+      this.broadcastUpdate('ITEM_UPDATED', { type: 'monthly_archive', archive }, archive.section);
+    } catch (error) {
+      this.handleError(error, 'saveMonthlyArchive');
+    }
+  }
+
+  async getMonthlyArchives(section: 'store' | 'supplement'): Promise<MonthlyArchive[]> {
+    try {
+      const { data, error } = await supabase
+        .from('monthly_archives')
+        .select('*')
+        .eq('section', section)
+        .order('year', { ascending: false })
+        .order('month', { ascending: false });
+
+      if (error) throw error;
+
+      return data.map(archive => ({
+        id: archive.id,
+        month: archive.month,
+        year: archive.year,
+        section: archive.section,
+        totalProfit: parseFloat(archive.total_profit),
+        totalCost: parseFloat(archive.total_cost),
+        totalRevenue: parseFloat(archive.total_revenue),
+        itemsSold: archive.items_sold as any,
+        shiftsCount: archive.shifts_count,
+        archivedAt: new Date(archive.archived_at),
+        archivedBy: archive.archived_by,
+      }));
+    } catch (error) {
+      this.handleError(error, 'getMonthlyArchives');
+      return [];
+    }
+  }
+
+  // Reset month functionality
+  async resetMonth(section: 'store' | 'supplement', adminName: string): Promise<void> {
+    try {
+      // Get all shifts for the current month
+      const shifts = await this.getShiftsBySection(section);
+      const currentDate = new Date();
+      const currentMonth = currentDate.toLocaleString('default', { month: 'long' });
+      const currentYear = currentDate.getFullYear();
+
+      // Calculate totals
+      let totalProfit = 0;
+      let totalCost = 0;
+      let totalRevenue = 0;
+      const itemsSold: Record<string, { quantity: number; revenue: number; name: string }> = {};
+
+      // Get all items to calculate costs
+      const allItems = await this.getItemsBySection(section);
+
+      for (const shift of shifts) {
+        for (const purchase of shift.purchases) {
+          const item = allItems.find(i => i.id === purchase.itemId);
+          if (item) {
+            const revenue = purchase.price * purchase.quantity;
+            const cost = item.costPrice * purchase.quantity;
+            const profit = revenue - cost;
+
+            totalRevenue += revenue;
+            totalCost += cost;
+            totalProfit += profit;
+
+            if (!itemsSold[purchase.itemId]) {
+              itemsSold[purchase.itemId] = {
+                quantity: 0,
+                revenue: 0,
+                name: purchase.name
+              };
+            }
+
+            itemsSold[purchase.itemId].quantity += purchase.quantity;
+            itemsSold[purchase.itemId].revenue += revenue;
+          }
+        }
+      }
+
+      // Create monthly archive
+      const archive: MonthlyArchive = {
+        id: uuidv4(),
+        month: currentMonth,
+        year: currentYear,
+        section,
+        totalProfit,
+        totalCost,
+        totalRevenue,
+        itemsSold,
+        shiftsCount: shifts.length,
+        archivedAt: new Date(),
+        archivedBy: adminName
+      };
+
+      await this.saveMonthlyArchive(archive);
+
+      // Delete all shifts for this section
+      const { error: deleteShiftsError } = await supabase
+        .from('shifts')
+        .delete()
+        .eq('section', section);
+
+      if (deleteShiftsError) throw deleteShiftsError;
+
+      // Delete related expenses
+      const { error: deleteExpensesError } = await supabase
+        .from('expenses')
+        .delete()
+        .eq('section', section);
+
+      if (deleteExpensesError) throw deleteExpensesError;
+
+      // Delete related external money
+      const { error: deleteExternalError } = await supabase
+        .from('external_money')
+        .delete()
+        .eq('section', section);
+
+      if (deleteExternalError) throw deleteExternalError;
+
+      // Delete customer purchases for this section
+      const { error: deletePurchasesError } = await supabase
+        .from('customer_purchases')
+        .delete()
+        .eq('section', section);
+
+      if (deletePurchasesError) throw deletePurchasesError;
+
+      // Log the reset action
+      const log: AdminLog = {
+        id: uuidv4(),
+        actionType: 'month_reset',
+        itemOrShiftAffected: `${section} section`,
+        changeDetails: `Month reset for ${currentMonth} ${currentYear}. Archived ${shifts.length} shifts with total profit: ${totalProfit.toFixed(2)} EGP`,
+        timestamp: new Date(),
+        adminName,
+        section
+      };
+
+      await this.saveAdminLog(log);
+
+      this.broadcastUpdate('ITEM_UPDATED', { type: 'month_reset', section }, section);
+    } catch (error) {
+      this.handleError(error, 'resetMonth');
     }
   }
 
@@ -802,8 +968,8 @@ class DatabaseService {
     }
   }
 
-  // Supply operations
-  async saveSupply(supply: Supply): Promise<void> {
+  // Supply operations with cash deduction
+  async saveSupply(supply: Supply, activeShift?: Shift): Promise<void> {
     try {
       const { error } = await supabase.from('supplies').insert({
         id: supply.id,
@@ -815,6 +981,22 @@ class DatabaseService {
       });
 
       if (error) throw error;
+
+      // If there's an active shift, deduct the cost as an expense
+      if (activeShift) {
+        const expense: Expense = {
+          id: uuidv4(),
+          amount: supply.totalCost,
+          reason: 'توريد مخزون',
+          shiftId: activeShift.id,
+          section: supply.section,
+          timestamp: new Date(),
+          createdBy: supply.createdBy
+        };
+
+        await this.saveExpense(expense);
+      }
+
       this.broadcastUpdate('SUPPLY_ADDED', { type: 'supply', supply }, supply.section);
     } catch (error) {
       this.handleError(error, 'saveSupply');

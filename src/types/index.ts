@@ -52,6 +52,16 @@ export interface CustomerPurchase {
   timestamp: Date;
 }
 
+export interface CustomerDebtDetails {
+  id: string;
+  customerId: string;
+  customerName: string;
+  section: 'store' | 'supplement';
+  totalDebt: number;
+  lastUpdated: Date;
+  updatedBy: string;
+}
+
 export interface Expense {
   id: string;
   amount: number;
@@ -100,6 +110,20 @@ export interface AdminLog {
   timestamp: Date;
   adminName: string;
   section?: 'store' | 'supplement';
+}
+
+export interface MonthlyArchive {
+  id: string;
+  month: string;
+  year: number;
+  section: 'store' | 'supplement';
+  totalProfit: number;
+  totalCost: number;
+  totalRevenue: number;
+  itemsSold: Record<string, { quantity: number; revenue: number; name: string }>;
+  shiftsCount: number;
+  archivedAt: Date;
+  archivedBy: string;
 }
 
 export interface Shift {

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Package, Users, DollarSign, Clock, AlertTriangle, CheckCircle, X, Edit, Trash2 } from 'lucide-react';
+import { Plus, Package, Users, DollarSign, Clock, AlertTriangle, CheckCircle, X, Edit, Trash2, Camera, Upload } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { db_service } from '../services/database';
 import { useRealtime } from '../hooks/useRealtime';
@@ -24,6 +24,9 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
   const [showCloseShiftModal, setShowCloseShiftModal] = useState(false);
   const [showNewCustomerModal, setShowNewCustomerModal] = useState(false);
   const [showEditExpenseModal, setShowEditExpenseModal] = useState(false);
+  const [showCustomerDetailsModal, setShowCustomerDetailsModal] = useState(false);
+  const [selectedCustomerDetails, setSelectedCustomerDetails] = useState<Customer | null>(null);
+  const [customerPurchases, setCustomerPurchases] = useState<CustomerPurchase[]>([]);
   const [editingExpense, setEditingExpense] = useState<Expense | null>(null);
   const [newCustomerName, setNewCustomerName] = useState('');
   const [expenseAmount, setExpenseAmount] = useState('');
@@ -33,9 +36,13 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
   const [finalInventory, setFinalInventory] = useState<Record<string, number>>({});
   const [finalCash, setFinalCash] = useState('');
   const [closeReason, setCloseReason] = useState('');
+  const [showCloseWithReason, setShowCloseWithReason] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   const [currentCash, setCurrentCash] = useState(0);
+  const [paymentAmount, setPaymentAmount] = useState('');
+  const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [selectedPurchaseForPayment, setSelectedPurchaseForPayment] = useState<CustomerPurchase | null>(null);
 
   // Load data
   useEffect(() => {
@@ -66,14 +73,14 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
       setActiveShift(activeShiftData);
       setUnpaidPurchases(unpaidData);
 
-      // Initialize final inventory with zeros
+      // Initialize final inventory with current amounts
       const inventoryMap: Record<string, number> = {};
       itemsData.forEach(item => {
-        inventoryMap[item.id] = 0;
+        inventoryMap[item.id] = item.currentAmount;
       });
       setFinalInventory(inventoryMap);
     } catch (error) {
-      console.error('Error loading data:', error);
+      console.error('خطأ في تحميل البيانات:', error);
       setError('فشل في تحميل البيانات');
     }
   };
@@ -141,7 +148,7 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
       setActiveShift(newShift);
       setError('');
     } catch (error) {
-      console.error('Error starting shift:', error);
+      console.error('خطأ في بدء الوردية:', error);
       setError('فشل في بدء الوردية');
     } finally {
       setIsLoading(false);
@@ -258,18 +265,20 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
       setError('');
       await loadData();
     } catch (error) {
-      console.error('Error processing sale:', error);
+      console.error('خطأ في معالجة البيع:', error);
       setError('فشل في معالجة البيع');
     } finally {
       setIsLoading(false);
     }
   };
 
-  const markAsPaid = async (purchase: CustomerPurchase) => {
+  const markAsPaid = async (purchase: CustomerPurchase, amount?: number) => {
     if (!activeShift) return;
 
     try {
       setIsLoading(true);
+
+      const paymentAmount = amount || purchase.totalAmount;
 
       // Mark purchase as paid
       const updatedPurchase = { ...purchase, isPaid: true };
@@ -279,17 +288,26 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
       const updatedShift = {
         ...activeShift,
         purchases: [...activeShift.purchases, ...purchase.items],
-        totalAmount: activeShift.totalAmount + purchase.totalAmount
+        totalAmount: activeShift.totalAmount + paymentAmount
       };
 
       await db_service.saveShift(updatedShift);
       await loadData();
+      setShowPaymentModal(false);
+      setSelectedPurchaseForPayment(null);
+      setPaymentAmount('');
     } catch (error) {
-      console.error('Error marking as paid:', error);
+      console.error('خطأ في تحديد كمدفوع:', error);
       setError('فشل في تحديد كمدفوع');
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const openPaymentModal = (purchase: CustomerPurchase) => {
+    setSelectedPurchaseForPayment(purchase);
+    setPaymentAmount(purchase.totalAmount.toString());
+    setShowPaymentModal(true);
   };
 
   const addExpense = async () => {
@@ -322,7 +340,7 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
       setError('');
       await loadData();
     } catch (error) {
-      console.error('Error adding expense:', error);
+      console.error('خطأ في إضافة المصروف:', error);
       setError('فشل في إضافة المصروف');
     } finally {
       setIsLoading(false);
@@ -359,7 +377,7 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
       setError('');
       await loadData();
     } catch (error) {
-      console.error('Error editing expense:', error);
+      console.error('خطأ في تعديل المصروف:', error);
       setError('فشل في تعديل المصروف');
     } finally {
       setIsLoading(false);
@@ -374,7 +392,7 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
       await db_service.deleteExpense(expense.id);
       await loadData();
     } catch (error) {
-      console.error('Error deleting expense:', error);
+      console.error('خطأ في حذف المصروف:', error);
       setError('فشل في حذف المصروف');
     } finally {
       setIsLoading(false);
@@ -413,40 +431,64 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
       setError('');
       await loadData();
     } catch (error) {
-      console.error('Error adding external money:', error);
+      console.error('خطأ في إضافة الأموال الخارجية:', error);
       setError('فشل في إضافة الأموال الخارجية');
     } finally {
       setIsLoading(false);
     }
   };
 
-  const closeShift = async () => {
+  const validateShiftClose = () => {
+    const finalCashAmount = parseFloat(finalCash) || 0;
+    const expectedCash = currentCash;
+    const discrepancies: string[] = [];
+
+    // Check cash discrepancy
+    if (Math.abs(finalCashAmount - expectedCash) > 0.01) {
+      discrepancies.push(`تضارب في النقدية: متوقع ${expectedCash.toFixed(2)} جنيه، موجود ${finalCashAmount.toFixed(2)} جنيه`);
+    }
+
+    // Check inventory discrepancies
+    for (const item of items) {
+      const reportedAmount = finalInventory[item.id] || 0;
+      const expectedAmount = item.currentAmount;
+
+      if (reportedAmount !== expectedAmount) {
+        discrepancies.push(`${item.name}: متوقع ${expectedAmount}، موجود ${reportedAmount}`);
+      }
+    }
+
+    return discrepancies;
+  };
+
+  const closeShift = async (forceClose = false) => {
     if (!activeShift) return;
 
     try {
       setIsLoading(true);
 
-      const finalCashAmount = parseFloat(finalCash) || 0;
-      const expectedCash = currentCash;
-      const discrepancies: string[] = [];
+      const discrepancies = validateShiftClose();
 
-      // Check cash discrepancy
-      if (Math.abs(finalCashAmount - expectedCash) > 0.01) {
-        discrepancies.push(`تضارب في النقدية: متوقع ${expectedCash} جنيه، موجود ${finalCashAmount} جنيه`);
+      // If there are discrepancies and not forcing close, show error
+      if (discrepancies.length > 0 && !forceClose) {
+        setError('يوجد تضارب في البيانات. يرجى مراجعة المدخلات أو استخدام زر "إغلاق مع سبب"');
+        setShowCloseWithReason(true);
+        setIsLoading(false);
+        return;
       }
 
-      // Check inventory discrepancies
+      // If forcing close, require a reason
+      if (forceClose && !closeReason.trim()) {
+        setError('يجب إدخال سبب صالح لإغلاق الوردية مع وجود تضارب');
+        setIsLoading(false);
+        return;
+      }
+
+      const finalCashAmount = parseFloat(finalCash) || 0;
+
+      // Update item inventory to reported amounts
       for (const item of items) {
         const reportedAmount = finalInventory[item.id] || 0;
-        const expectedAmount = item.currentAmount - activeShift.purchases
-          .filter(p => p.itemId === item.id)
-          .reduce((sum, p) => sum + p.quantity, 0);
-
-        if (reportedAmount !== expectedAmount) {
-          discrepancies.push(`${item.name}: متوقع ${expectedAmount}، موجود ${reportedAmount}`);
-        }
-
-        // Update item inventory to reported amount
         const updatedItem = {
           ...item,
           currentAmount: reportedAmount,
@@ -461,7 +503,7 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
         endTime: new Date(),
         finalInventory,
         finalCash: finalCashAmount,
-        discrepancies,
+        discrepancies: discrepancies.length > 0 ? discrepancies : undefined,
         closeReason: closeReason || undefined,
         validationStatus: discrepancies.length > 0 ? 'discrepancy' : 'balanced'
       };
@@ -470,12 +512,13 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
 
       setActiveShift(null);
       setShowCloseShiftModal(false);
+      setShowCloseWithReason(false);
       setFinalCash('');
       setCloseReason('');
       setError('');
       await loadData();
     } catch (error) {
-      console.error('Error closing shift:', error);
+      console.error('خطأ في إغلاق الوردية:', error);
       setError('فشل في إغلاق الوردية');
     } finally {
       setIsLoading(false);
@@ -500,8 +543,42 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
       setShowNewCustomerModal(false);
       await loadData();
     } catch (error) {
-      console.error('Error creating customer:', error);
+      console.error('خطأ في إنشاء العميل:', error);
       setError('فشل في إنشاء العميل');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const openCustomerDetails = async (customer: Customer) => {
+    try {
+      setSelectedCustomerDetails(customer);
+      const purchases = await db_service.getCustomerPurchases(customer.id);
+      setCustomerPurchases(purchases.filter(p => !p.isPaid));
+      setShowCustomerDetailsModal(true);
+    } catch (error) {
+      console.error('خطأ في تحميل تفاصيل العميل:', error);
+      setError('فشل في تحميل تفاصيل العميل');
+    }
+  };
+
+  const payAllCustomerDebt = async (customer: Customer) => {
+    if (!activeShift) return;
+
+    try {
+      setIsLoading(true);
+      const purchases = await db_service.getCustomerPurchases(customer.id);
+      const unpaidPurchases = purchases.filter(p => !p.isPaid);
+      
+      for (const purchase of unpaidPurchases) {
+        await markAsPaid(purchase);
+      }
+      
+      setShowCustomerDetailsModal(false);
+      await loadData();
+    } catch (error) {
+      console.error('خطأ في دفع جميع ديون العميل:', error);
+      setError('فشل في دفع جميع ديون العميل');
     } finally {
       setIsLoading(false);
     }
@@ -638,31 +715,43 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
         </div>
       )}
 
-      {/* Unpaid Customer Purchases */}
+      {/* Customer Debt Summary */}
       {unpaidPurchases.length > 0 && (
         <div className="bg-white rounded-lg shadow-sm p-6">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">مشتريات العملاء غير المدفوعة</h3>
+          <h3 className="text-lg font-semibold text-gray-900 mb-4">ديون العملاء</h3>
           <div className="space-y-3">
-            {unpaidPurchases.map(purchase => (
-              <div key={purchase.id} className="flex justify-between items-center p-4 bg-yellow-50 rounded-lg">
-                <div>
-                  <div className="font-medium">{purchase.customerName}</div>
-                  <div className="text-sm text-gray-600">
-                    {purchase.items.length} منتج - {purchase.totalAmount.toFixed(2)} جنيه
+            {customers.map(customer => {
+              const customerDebt = unpaidPurchases
+                .filter(p => p.customerId === customer.id)
+                .reduce((sum, p) => sum + p.totalAmount, 0);
+              
+              if (customerDebt === 0) return null;
+
+              return (
+                <div key={customer.id} className="flex justify-between items-center p-4 bg-yellow-50 rounded-lg">
+                  <div>
+                    <button
+                      onClick={() => openCustomerDetails(customer)}
+                      className="font-medium text-blue-600 hover:text-blue-800"
+                    >
+                      {customer.name}
+                    </button>
+                    <div className="text-sm text-gray-600">
+                      إجمالي الدين: {customerDebt.toFixed(2)} جنيه
+                    </div>
                   </div>
-                  <div className="text-xs text-gray-500">
-                    {purchase.timestamp.toLocaleString('ar-EG')}
+                  <div className="flex space-x-2">
+                    <button
+                      onClick={() => payAllCustomerDebt(customer)}
+                      disabled={isLoading}
+                      className="bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded text-sm disabled:opacity-50"
+                    >
+                      دفع الكل
+                    </button>
                   </div>
                 </div>
-                <button
-                  onClick={() => markAsPaid(purchase)}
-                  disabled={isLoading}
-                  className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm disabled:opacity-50"
-                >
-                  تحديد كمدفوع
-                </button>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}
@@ -683,6 +772,13 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
                   }`}
                   onClick={() => item.currentAmount > 0 && addToCart(item)}
                 >
+                  {item.image && (
+                    <img
+                      src={item.image}
+                      alt={item.name}
+                      className="w-full h-32 object-cover rounded-md mb-2"
+                    />
+                  )}
                   <div className="font-medium text-gray-900">{item.name}</div>
                   <div className="text-lg font-bold text-blue-600">{item.sellPrice} جنيه</div>
                   <div className={`text-sm ${item.currentAmount > 0 ? 'text-green-600' : 'text-red-600'}`}>
@@ -791,6 +887,103 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
           )}
         </div>
       </div>
+
+      {/* Customer Details Modal */}
+      {showCustomerDetailsModal && selectedCustomerDetails && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-4xl max-h-[90vh] overflow-y-auto">
+            <h3 className="text-lg font-semibold mb-4">تفاصيل ديون العميل: {selectedCustomerDetails.name}</h3>
+            
+            <div className="space-y-4">
+              {customerPurchases.map(purchase => (
+                <div key={purchase.id} className="border rounded-lg p-4">
+                  <div className="flex justify-between items-start mb-2">
+                    <div>
+                      <div className="font-medium">المبلغ: {purchase.totalAmount.toFixed(2)} جنيه</div>
+                      <div className="text-sm text-gray-600">
+                        التاريخ: {purchase.timestamp.toLocaleString('ar-EG')}
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => openPaymentModal(purchase)}
+                      className="bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded text-sm"
+                    >
+                      دفع
+                    </button>
+                  </div>
+                  
+                  <div className="mt-2">
+                    <div className="text-sm font-medium text-gray-700 mb-1">المنتجات:</div>
+                    <div className="space-y-1">
+                      {purchase.items.map((item, index) => (
+                        <div key={index} className="text-sm text-gray-600 flex justify-between">
+                          <span>{item.name} × {item.quantity}</span>
+                          <span>{(item.price * item.quantity).toFixed(2)} جنيه</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="flex justify-end space-x-3 mt-6">
+              <button
+                onClick={() => setShowCustomerDetailsModal(false)}
+                className="bg-gray-300 hover:bg-gray-400 text-gray-700 px-4 py-2 rounded-lg"
+              >
+                إغلاق
+              </button>
+              <button
+                onClick={() => payAllCustomerDebt(selectedCustomerDetails)}
+                disabled={isLoading || customerPurchases.length === 0}
+                className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg disabled:opacity-50"
+              >
+                دفع جميع الديون
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Payment Modal */}
+      {showPaymentModal && selectedPurchaseForPayment && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-md">
+            <h3 className="text-lg font-semibold mb-4">دفع دين العميل</h3>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">المبلغ المدفوع (جنيه)</label>
+                <input
+                  type="number"
+                  value={paymentAmount}
+                  onChange={(e) => setPaymentAmount(e.target.value)}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                  placeholder="0.00"
+                />
+                <div className="text-xs text-gray-500 mt-1">
+                  إجمالي الدين: {selectedPurchaseForPayment.totalAmount.toFixed(2)} جنيه
+                </div>
+              </div>
+            </div>
+            <div className="flex space-x-3 mt-6">
+              <button
+                onClick={() => setShowPaymentModal(false)}
+                className="flex-1 bg-gray-300 hover:bg-gray-400 text-gray-700 py-2 rounded-lg"
+              >
+                إلغاء
+              </button>
+              <button
+                onClick={() => markAsPaid(selectedPurchaseForPayment, parseFloat(paymentAmount))}
+                disabled={!paymentAmount || parseFloat(paymentAmount) <= 0}
+                className="flex-1 bg-green-600 hover:bg-green-700 text-white py-2 rounded-lg disabled:opacity-50"
+              >
+                تأكيد الدفع
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Expense Modal */}
       {showExpenseModal && (
@@ -962,9 +1155,6 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
                   className="w-full border border-gray-300 rounded-lg px-3 py-2"
                   placeholder="0.00"
                 />
-                <div className="text-xs text-gray-500 mt-1">
-                  المتوقع: {currentCash.toFixed(2)} جنيه
-                </div>
               </div>
 
               {/* Final Inventory */}
@@ -996,35 +1186,52 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
                 </div>
               </div>
 
-              {/* Close Reason */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  ملاحظات (اختياري)
-                </label>
-                <textarea
-                  value={closeReason}
-                  onChange={(e) => setCloseReason(e.target.value)}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2"
-                  rows={3}
-                  placeholder="أي ملاحظات حول الوردية..."
-                />
-              </div>
+              {/* Close Reason - only show if forcing close */}
+              {showCloseWithReason && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    سبب الإغلاق (مطلوب)
+                  </label>
+                  <textarea
+                    value={closeReason}
+                    onChange={(e) => setCloseReason(e.target.value)}
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                    rows={3}
+                    placeholder="يجب إدخال سبب صالح لإغلاق الوردية مع وجود تضارب..."
+                    required
+                  />
+                </div>
+              )}
             </div>
 
             <div className="flex space-x-3 mt-6">
               <button
-                onClick={() => setShowCloseShiftModal(false)}
+                onClick={() => {
+                  setShowCloseShiftModal(false);
+                  setShowCloseWithReason(false);
+                  setCloseReason('');
+                }}
                 className="flex-1 bg-gray-300 hover:bg-gray-400 text-gray-700 py-2 rounded-lg"
               >
                 إلغاء
               </button>
-              <button
-                onClick={closeShift}
-                disabled={!finalCash}
-                className="flex-1 bg-red-600 hover:bg-red-700 text-white py-2 rounded-lg disabled:opacity-50"
-              >
-                إغلاق الوردية
-              </button>
+              {!showCloseWithReason ? (
+                <button
+                  onClick={() => closeShift(false)}
+                  disabled={!finalCash}
+                  className="flex-1 bg-green-600 hover:bg-green-700 text-white py-2 rounded-lg disabled:opacity-50"
+                >
+                  إغلاق الوردية
+                </button>
+              ) : (
+                <button
+                  onClick={() => closeShift(true)}
+                  disabled={!finalCash || !closeReason.trim()}
+                  className="flex-1 bg-red-600 hover:bg-red-700 text-white py-2 rounded-lg disabled:opacity-50"
+                >
+                  إغلاق مع السبب
+                </button>
+              )}
             </div>
           </div>
         </div>
