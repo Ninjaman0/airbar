@@ -1,12 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Minus, ShoppingCart, Users, DollarSign, Package, Clock, AlertTriangle, Eye } from 'lucide-react';
+import { Plus, Package, Users, DollarSign, Clock, AlertTriangle, CheckCircle, X, Edit, Trash2, Camera, Upload, Eye } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
-import { useRealtime } from '../hooks/useRealtime';
 import { db_service } from '../services/database';
-import { 
-  Item, Customer, CustomerPurchase, Shift, PurchaseItem, 
-  Expense, ExternalMoney
-} from '../types';
+import { useRealtime } from '../hooks/useRealtime';
+import { Item, Shift, PurchaseItem, Customer, CustomerPurchase, Expense, ExternalMoney } from '../types';
 import { v4 as uuidv4 } from 'uuid';
 
 interface NormalUserViewProps {
@@ -15,163 +12,160 @@ interface NormalUserViewProps {
 
 const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
   const { user } = useAuth();
-  const [activeTab, setActiveTab] = useState<'pos' | 'customers'>('pos');
-  
-  // State for data
   const [items, setItems] = useState<Item[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
-  const [customerPurchases, setCustomerPurchases] = useState<CustomerPurchase[]>([]);
+  const [unpaidPurchases, setUnpaidPurchases] = useState<CustomerPurchase[]>([]);
   const [activeShift, setActiveShift] = useState<Shift | null>(null);
-  
-  // POS state
   const [cart, setCart] = useState<PurchaseItem[]>([]);
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
-  const [showCustomerSelect, setShowCustomerSelect] = useState(false);
-  const [showAddExpense, setShowAddExpense] = useState(false);
-  const [showAddExternalMoney, setShowAddExternalMoney] = useState(false);
-  const [showCloseShift, setShowCloseShift] = useState(false);
-  
-  // Customer view state
-  const [viewingCustomer, setViewingCustomer] = useState<Customer | null>(null);
-  const [selectedCustomerPurchases, setSelectedCustomerPurchases] = useState<CustomerPurchase[]>([]);
-  
-  // Form state
-  const [expenseForm, setExpenseForm] = useState({ amount: '', reason: '' });
-  const [externalMoneyForm, setExternalMoneyForm] = useState({ amount: '', reason: '' });
-  const [closeShiftForm, setCloseShiftForm] = useState({
-    finalCash: '',
-    finalInventory: {} as Record<string, number>,
-    closeReason: ''
-  });
-  
-  const [loading, setLoading] = useState(true);
+  const [isCustomerPurchase, setIsCustomerPurchase] = useState(false);
+  const [showExpenseModal, setShowExpenseModal] = useState(false);
+  const [showExternalMoneyModal, setShowExternalMoneyModal] = useState(false);
+  const [showCloseShiftModal, setShowCloseShiftModal] = useState(false);
+  const [showNewCustomerModal, setShowNewCustomerModal] = useState(false);
+  const [showEditExpenseModal, setShowEditExpenseModal] = useState(false);
+  const [showCustomerDetailsModal, setShowCustomerDetailsModal] = useState(false);
+  const [selectedCustomerDetails, setSelectedCustomerDetails] = useState<Customer | null>(null);
+  const [customerPurchases, setCustomerPurchases] = useState<CustomerPurchase[]>([]);
+  const [editingExpense, setEditingExpense] = useState<Expense | null>(null);
+  const [newCustomerName, setNewCustomerName] = useState('');
+  const [expenseAmount, setExpenseAmount] = useState('');
+  const [expenseReason, setExpenseReason] = useState('');
+  const [externalAmount, setExternalAmount] = useState('');
+  const [externalReason, setExternalReason] = useState('');
+  const [finalInventory, setFinalInventory] = useState<Record<string, number>>({});
+  const [finalCash, setFinalCash] = useState('');
+  const [closeReason, setCloseReason] = useState('');
+  const [showCloseWithReason, setShowCloseWithReason] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [currentCash, setCurrentCash] = useState(0);
+  const [paymentAmount, setPaymentAmount] = useState('');
+  const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [selectedPurchaseForPayment, setSelectedPurchaseForPayment] = useState<CustomerPurchase | null>(null);
+  const [activeTab, setActiveTab] = useState<'sales' | 'customers'>('sales');
 
   // Load data
+  useEffect(() => {
+    loadData();
+  }, [section]);
+
+  // Calculate current cash
+  useEffect(() => {
+    if (activeShift) {
+      const totalSales = activeShift.purchases.reduce((sum, p) => sum + (p.price * p.quantity), 0);
+      const totalExpenses = activeShift.expenses.reduce((sum, e) => sum + e.amount, 0);
+      const totalExternal = activeShift.externalMoney.reduce((sum, e) => sum + e.amount, 0);
+      setCurrentCash(totalSales - totalExpenses + totalExternal);
+    }
+  }, [activeShift]);
+
   const loadData = async () => {
     try {
-      setLoading(true);
-      const [itemsData, customersData, activeShiftData] = await Promise.all([
+      const [itemsData, customersData, activeShiftData, unpaidData] = await Promise.all([
         db_service.getItemsBySection(section),
         db_service.getCustomersBySection(section),
-        db_service.getActiveShift(section)
+        db_service.getActiveShift(section),
+        db_service.getUnpaidCustomerPurchases(section)
       ]);
 
       setItems(itemsData);
       setCustomers(customersData);
       setActiveShift(activeShiftData);
+      setUnpaidPurchases(unpaidData);
 
-      // Load unpaid customer purchases
-      const unpaidPurchases = await db_service.getUnpaidCustomerPurchases(section);
-      setCustomerPurchases(unpaidPurchases);
-
-      // Initialize close shift form with current inventory
-      if (activeShiftData) {
-        const inventoryState: Record<string, number> = {};
-        itemsData.forEach(item => {
-          inventoryState[item.id] = item.currentAmount;
-        });
-        setCloseShiftForm(prev => ({ ...prev, finalInventory: inventoryState }));
-      }
+      // Initialize final inventory with current amounts
+      const inventoryMap: Record<string, number> = {};
+      itemsData.forEach(item => {
+        inventoryMap[item.id] = item.currentAmount;
+      });
+      setFinalInventory(inventoryMap);
     } catch (error) {
-      console.error('Error loading data:', error);
-    } finally {
-      setLoading(false);
+      console.error('خطأ في تحميل البيانات:', error);
+      setError('فشل في تحميل البيانات');
     }
   };
-
-  useEffect(() => {
-    loadData();
-  }, [section]);
 
   // Real-time updates
   useRealtime((event) => {
-    if (event.section && event.section !== section) return;
-    
-    switch (event.type) {
-      case 'ITEM_UPDATED':
-      case 'CUSTOMER_UPDATED':
-      case 'SHIFT_UPDATED':
-        loadData();
-        break;
+    if (event.section === section || !event.section) {
+      switch (event.type) {
+        case 'ITEM_UPDATED':
+        case 'SHIFT_UPDATED':
+        case 'CUSTOMER_UPDATED':
+        case 'EXPENSE_ADDED':
+        case 'EXTERNAL_MONEY_UPDATED':
+          loadData();
+          break;
+      }
     }
   }, [section]);
 
-  // Shift management
   const startShift = async () => {
-    if (activeShift) {
-      alert('يوجد وردية نشطة بالفعل');
-      return;
-    }
+    if (!user) return;
 
-    const newShift: Shift = {
-      id: uuidv4(),
-      userId: user?.id || '',
-      username: user?.username || '',
-      section,
-      status: 'active',
-      purchases: [],
-      expenses: [],
-      externalMoney: [],
-      totalAmount: 0,
-      startTime: new Date(),
-      validationStatus: 'balanced'
-    };
+    try {
+      setIsLoading(true);
+      
+      // Get the last closed shift to carry over remaining cash
+      const allShifts = await db_service.getShiftsBySection(section);
+      const lastClosedShift = allShifts.find(s => s.status === 'closed');
+      const startingCash = lastClosedShift?.finalCash || 0;
 
-    await db_service.saveShift(newShift);
-    setActiveShift(newShift);
-  };
+      const newShift: Shift = {
+        id: uuidv4(),
+        userId: user.id,
+        username: user.username,
+        section,
+        status: 'active',
+        purchases: [],
+        expenses: [],
+        externalMoney: startingCash > 0 ? [{
+          id: uuidv4(),
+          amount: startingCash,
+          reason: 'مبلغ محول من الوردية السابقة',
+          shiftId: '',
+          section,
+          timestamp: new Date(),
+          createdBy: user.username
+        }] : [],
+        totalAmount: startingCash,
+        startTime: new Date(),
+        validationStatus: 'balanced'
+      };
 
-  const closeShift = async () => {
-    if (!activeShift) return;
-
-    const finalCash = parseFloat(closeShiftForm.finalCash);
-    const expectedCash = activeShift.totalAmount - 
-      activeShift.expenses.reduce((total, e) => total + e.amount, 0) +
-      activeShift.externalMoney.reduce((total, e) => total + e.amount, 0);
-
-    const discrepancies: string[] = [];
-    
-    // Check cash discrepancy
-    if (Math.abs(finalCash - expectedCash) > 0.01) {
-      discrepancies.push(`تضارب في النقدية: متوقع ${expectedCash.toFixed(2)} جنيه، موجود ${finalCash.toFixed(2)} جنيه`);
-    }
-
-    // Check inventory discrepancies
-    for (const [itemId, expectedAmount] of Object.entries(closeShiftForm.finalInventory)) {
-      const item = items.find(i => i.id === itemId);
-      if (item && item.currentAmount !== expectedAmount) {
-        discrepancies.push(`تضارب في ${item.name}: متوقع ${item.currentAmount}، موجود ${expectedAmount}`);
+      // Update shift ID in external money
+      if (newShift.externalMoney.length > 0) {
+        newShift.externalMoney[0].shiftId = newShift.id;
       }
+
+      await db_service.saveShift(newShift);
+      
+      // Save external money record if there's starting cash
+      if (startingCash > 0) {
+        await db_service.saveExternalMoney(newShift.externalMoney[0]);
+      }
+
+      setActiveShift(newShift);
+      setError('');
+    } catch (error) {
+      console.error('خطأ في بدء الوردية:', error);
+      setError('فشل في بدء الوردية');
+    } finally {
+      setIsLoading(false);
     }
-
-    const updatedShift: Shift = {
-      ...activeShift,
-      status: 'closed',
-      endTime: new Date(),
-      finalCash,
-      finalInventory: closeShiftForm.finalInventory,
-      discrepancies,
-      closeReason: closeShiftForm.closeReason,
-      validationStatus: discrepancies.length > 0 ? 'discrepancy' : 'balanced'
-    };
-
-    await db_service.saveShift(updatedShift);
-    setActiveShift(null);
-    setShowCloseShift(false);
-    setCloseShiftForm({ finalCash: '', finalInventory: {}, closeReason: '' });
   };
 
-  // Cart management
   const addToCart = (item: Item) => {
     if (item.currentAmount <= 0) {
-      alert('هذا العنصر غير متوفر في المخزون');
+      setError('المنتج غير متوفر في المخزون');
       return;
     }
 
     const existingItem = cart.find(cartItem => cartItem.itemId === item.id);
     if (existingItem) {
       if (existingItem.quantity >= item.currentAmount) {
-        alert('لا يمكن إضافة المزيد من هذا العنصر');
+        setError('لا يمكن إضافة أكثر من الكمية المتوفرة');
         return;
       }
       setCart(cart.map(cartItem =>
@@ -182,639 +176,1094 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
     } else {
       setCart([...cart, {
         itemId: item.id,
-        name: item.name,
+        quantity: 1,
         price: item.sellPrice,
-        quantity: 1
+        name: item.name
       }]);
     }
+    setError('');
   };
 
   const removeFromCart = (itemId: string) => {
-    const existingItem = cart.find(cartItem => cartItem.itemId === itemId);
-    if (existingItem && existingItem.quantity > 1) {
-      setCart(cart.map(cartItem =>
-        cartItem.itemId === itemId
-          ? { ...cartItem, quantity: cartItem.quantity - 1 }
-          : cartItem
-      ));
-    } else {
-      setCart(cart.filter(cartItem => cartItem.itemId !== itemId));
-    }
+    setCart(cart.filter(item => item.itemId !== itemId));
   };
 
-  const clearCart = () => {
-    setCart([]);
-    setSelectedCustomer(null);
-  };
+  const updateCartQuantity = (itemId: string, quantity: number) => {
+    const item = items.find(i => i.id === itemId);
+    if (!item) return;
 
-  // Purchase processing
-  const processPurchase = async (isPaid: boolean = true) => {
-    if (!activeShift) {
-      alert('يجب بدء وردية أولاً');
+    if (quantity <= 0) {
+      removeFromCart(itemId);
       return;
     }
 
-    if (cart.length === 0) {
-      alert('السلة فارغة');
+    if (quantity > item.currentAmount) {
+      setError('لا يمكن تجاوز الكمية المتوفرة');
       return;
     }
 
-    const totalAmount = cart.reduce((total, item) => total + (item.price * item.quantity), 0);
+    setCart(cart.map(cartItem =>
+      cartItem.itemId === itemId
+        ? { ...cartItem, quantity }
+        : cartItem
+    ));
+    setError('');
+  };
 
-    // Update item quantities
-    for (const cartItem of cart) {
-      const item = items.find(i => i.id === cartItem.itemId);
-      if (item) {
+  const processSale = async () => {
+    if (!activeShift || cart.length === 0) return;
+
+    try {
+      setIsLoading(true);
+
+      if (isCustomerPurchase && !selectedCustomer) {
+        setError('يرجى اختيار عميل');
+        return;
+      }
+
+      // Update inventory
+      for (const cartItem of cart) {
+        const item = items.find(i => i.id === cartItem.itemId);
+        if (item) {
+          const updatedItem = {
+            ...item,
+            currentAmount: item.currentAmount - cartItem.quantity,
+            updatedAt: new Date()
+          };
+          await db_service.saveItem(updatedItem);
+        }
+      }
+
+      if (isCustomerPurchase && selectedCustomer) {
+        // Create customer purchase
+        const purchase: CustomerPurchase = {
+          id: uuidv4(),
+          customerId: selectedCustomer.id,
+          customerName: selectedCustomer.name,
+          items: cart,
+          totalAmount: cart.reduce((sum, item) => sum + (item.price * item.quantity), 0),
+          section,
+          shiftId: activeShift.id,
+          isPaid: false,
+          timestamp: new Date()
+        };
+
+        await db_service.saveCustomerPurchase(purchase);
+      } else {
+        // Regular sale - add to shift purchases and update cash
+        const updatedShift = {
+          ...activeShift,
+          purchases: [...activeShift.purchases, ...cart],
+          totalAmount: activeShift.totalAmount + cart.reduce((sum, item) => sum + (item.price * item.quantity), 0)
+        };
+
+        await db_service.saveShift(updatedShift);
+      }
+
+      setCart([]);
+      setSelectedCustomer(null);
+      setIsCustomerPurchase(false);
+      setError('');
+      await loadData();
+    } catch (error) {
+      console.error('خطأ في معالجة البيع:', error);
+      setError('فشل في معالجة البيع');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const markAsPaid = async (purchase: CustomerPurchase, amount?: number) => {
+    if (!activeShift) return;
+
+    try {
+      setIsLoading(true);
+
+      const paymentAmount = amount || purchase.totalAmount;
+
+      // Mark purchase as paid
+      const updatedPurchase = { ...purchase, isPaid: true };
+      await db_service.saveCustomerPurchase(updatedPurchase);
+
+      // Add to shift purchases and update cash
+      const updatedShift = {
+        ...activeShift,
+        purchases: [...activeShift.purchases, ...purchase.items],
+        totalAmount: activeShift.totalAmount + paymentAmount
+      };
+
+      await db_service.saveShift(updatedShift);
+      await loadData();
+      setShowPaymentModal(false);
+      setSelectedPurchaseForPayment(null);
+      setPaymentAmount('');
+    } catch (error) {
+      console.error('خطأ في تحديد كمدفوع:', error);
+      setError('فشل في تحديد كمدفوع');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const openPaymentModal = (purchase: CustomerPurchase) => {
+    setSelectedPurchaseForPayment(purchase);
+    setPaymentAmount(purchase.totalAmount.toString());
+    setShowPaymentModal(true);
+  };
+
+  const addExpense = async () => {
+    if (!activeShift || !expenseAmount || !expenseReason) return;
+
+    const amount = parseFloat(expenseAmount);
+    if (amount > currentCash) {
+      setError('لا يمكن أن تتجاوز المصروفات المبلغ الموجود في الصندوق');
+      return;
+    }
+
+    try {
+      setIsLoading(true);
+
+      const expense: Expense = {
+        id: uuidv4(),
+        amount,
+        reason: expenseReason,
+        shiftId: activeShift.id,
+        section,
+        timestamp: new Date(),
+        createdBy: user?.username || ''
+      };
+
+      await db_service.saveExpense(expense);
+
+      setExpenseAmount('');
+      setExpenseReason('');
+      setShowExpenseModal(false);
+      setError('');
+      await loadData();
+    } catch (error) {
+      console.error('خطأ في إضافة المصروف:', error);
+      setError('فشل في إضافة المصروف');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const editExpense = async () => {
+    if (!activeShift || !editingExpense || !expenseAmount || !expenseReason) return;
+
+    const amount = parseFloat(expenseAmount);
+    const currentCashWithoutExpense = currentCash + editingExpense.amount;
+    
+    if (amount > currentCashWithoutExpense) {
+      setError('لا يمكن أن تتجاوز المصروفات المبلغ الموجود في الصندوق');
+      return;
+    }
+
+    try {
+      setIsLoading(true);
+
+      const updatedExpense: Expense = {
+        ...editingExpense,
+        amount,
+        reason: expenseReason,
+        timestamp: new Date()
+      };
+
+      await db_service.saveExpense(updatedExpense);
+
+      setExpenseAmount('');
+      setExpenseReason('');
+      setEditingExpense(null);
+      setShowEditExpenseModal(false);
+      setError('');
+      await loadData();
+    } catch (error) {
+      console.error('خطأ في تعديل المصروف:', error);
+      setError('فشل في تعديل المصروف');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const deleteExpense = async (expense: Expense) => {
+    if (!confirm('هل أنت متأكد من حذف هذا المصروف؟')) return;
+
+    try {
+      setIsLoading(true);
+      await db_service.deleteExpense(expense.id);
+      await loadData();
+    } catch (error) {
+      console.error('خطأ في حذف المصروف:', error);
+      setError('فشل في حذف المصروف');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const openEditExpenseModal = (expense: Expense) => {
+    setEditingExpense(expense);
+    setExpenseAmount(expense.amount.toString());
+    setExpenseReason(expense.reason);
+    setShowEditExpenseModal(true);
+  };
+
+  const addExternalMoney = async () => {
+    if (!activeShift || !externalAmount || !externalReason) return;
+
+    try {
+      setIsLoading(true);
+
+      const amount = parseFloat(externalAmount);
+      const externalMoney: ExternalMoney = {
+        id: uuidv4(),
+        amount,
+        reason: externalReason,
+        shiftId: activeShift.id,
+        section,
+        timestamp: new Date(),
+        createdBy: user?.username || ''
+      };
+
+      await db_service.saveExternalMoney(externalMoney);
+
+      setExternalAmount('');
+      setExternalReason('');
+      setShowExternalMoneyModal(false);
+      setError('');
+      await loadData();
+    } catch (error) {
+      console.error('خطأ في إضافة الأموال الخارجية:', error);
+      setError('فشل في إضافة الأموال الخارجية');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const validateShiftClose = () => {
+    const finalCashAmount = parseFloat(finalCash) || 0;
+    const expectedCash = currentCash;
+    const discrepancies: string[] = [];
+
+    // Check cash discrepancy
+    if (Math.abs(finalCashAmount - expectedCash) > 0.01) {
+      discrepancies.push(`تضارب في النقدية: متوقع ${expectedCash.toFixed(2)} جنيه، موجود ${finalCashAmount.toFixed(2)} جنيه`);
+    }
+
+    // Check inventory discrepancies
+    for (const item of items) {
+      const reportedAmount = finalInventory[item.id] || 0;
+      const expectedAmount = item.currentAmount;
+
+      if (reportedAmount !== expectedAmount) {
+        discrepancies.push(`${item.name}: متوقع ${expectedAmount}، موجود ${reportedAmount}`);
+      }
+    }
+
+    return discrepancies;
+  };
+
+  const closeShift = async (forceClose = false) => {
+    if (!activeShift) return;
+
+    try {
+      setIsLoading(true);
+
+      const discrepancies = validateShiftClose();
+
+      // If there are discrepancies and not forcing close, show error
+      if (discrepancies.length > 0 && !forceClose) {
+        setError('يوجد تضارب في البيانات. يرجى مراجعة المدخلات أو استخدام زر "إغلاق مع سبب"');
+        setShowCloseWithReason(true);
+        setIsLoading(false);
+        return;
+      }
+
+      // If forcing close, require a reason
+      if (forceClose && !closeReason.trim()) {
+        setError('يجب إدخال سبب صالح لإغلاق الوردية مع وجود تضارب');
+        setIsLoading(false);
+        return;
+      }
+
+      const finalCashAmount = parseFloat(finalCash) || 0;
+
+      // Update item inventory to reported amounts
+      for (const item of items) {
+        const reportedAmount = finalInventory[item.id] || 0;
         const updatedItem = {
           ...item,
-          currentAmount: item.currentAmount - cartItem.quantity,
+          currentAmount: reportedAmount,
           updatedAt: new Date()
         };
         await db_service.saveItem(updatedItem);
       }
-    }
 
-    // Create customer purchase if customer is selected
-    if (selectedCustomer) {
-      const customerPurchase: CustomerPurchase = {
-        id: uuidv4(),
-        customerId: selectedCustomer.id,
-        customerName: selectedCustomer.name,
-        items: cart,
-        totalAmount,
-        section,
-        shiftId: activeShift.id,
-        isPaid,
-        timestamp: new Date()
-      };
-
-      await db_service.saveCustomerPurchase(customerPurchase);
-    }
-
-    // Update shift
-    const updatedShift: Shift = {
-      ...activeShift,
-      purchases: [...activeShift.purchases, ...cart],
-      totalAmount: activeShift.totalAmount + (isPaid ? totalAmount : 0)
-    };
-
-    await db_service.saveShift(updatedShift);
-    setActiveShift(updatedShift);
-
-    clearCart();
-    loadData();
-    alert(isPaid ? 'تم إتمام البيع بنجاح' : 'تم تسجيل البيع على الحساب');
-  };
-
-  // Expense management
-  const addExpense = async () => {
-    if (!activeShift || !expenseForm.amount || !expenseForm.reason) return;
-
-    const expense: Expense = {
-      id: uuidv4(),
-      amount: parseFloat(expenseForm.amount),
-      reason: expenseForm.reason,
-      shiftId: activeShift.id,
-      section,
-      timestamp: new Date(),
-      createdBy: user?.username || 'Unknown'
-    };
-
-    await db_service.saveExpense(expense);
-
-    const updatedShift: Shift = {
-      ...activeShift,
-      expenses: [...activeShift.expenses, expense]
-    };
-
-    await db_service.saveShift(updatedShift);
-    setActiveShift(updatedShift);
-
-    setExpenseForm({ amount: '', reason: '' });
-    setShowAddExpense(false);
-    loadData();
-  };
-
-  // External money management
-  const addExternalMoney = async () => {
-    if (!activeShift || !externalMoneyForm.amount || !externalMoneyForm.reason) return;
-
-    const externalMoney: ExternalMoney = {
-      id: uuidv4(),
-      amount: parseFloat(externalMoneyForm.amount),
-      reason: externalMoneyForm.reason,
-      shiftId: activeShift.id,
-      section,
-      timestamp: new Date(),
-      createdBy: user?.username || 'Unknown'
-    };
-
-    await db_service.saveExternalMoney(externalMoney);
-
-    const updatedShift: Shift = {
-      ...activeShift,
-      externalMoney: [...activeShift.externalMoney, externalMoney]
-    };
-
-    await db_service.saveShift(updatedShift);
-    setActiveShift(updatedShift);
-
-    setExternalMoneyForm({ amount: '', reason: '' });
-    setShowAddExternalMoney(false);
-    loadData();
-  };
-
-  // Customer debt payment
-  const payCustomerDebt = async (customer: Customer) => {
-    const unpaidPurchases = customerPurchases.filter(p => 
-      p.customerId === customer.id && !p.isPaid
-    );
-
-    if (unpaidPurchases.length === 0) {
-      alert('لا يوجد ديون لهذا العميل');
-      return;
-    }
-
-    const totalDebt = unpaidPurchases.reduce((total, p) => total + p.totalAmount, 0);
-
-    if (!confirm(`هل تريد دفع جميع ديون ${customer.name}؟\nالمبلغ الإجمالي: ${totalDebt.toFixed(2)} جنيه`)) {
-      return;
-    }
-
-    // Mark all purchases as paid
-    for (const purchase of unpaidPurchases) {
-      const updatedPurchase = { ...purchase, isPaid: true };
-      await db_service.saveCustomerPurchase(updatedPurchase);
-    }
-
-    // Add money to active shift if exists
-    if (activeShift) {
       const updatedShift: Shift = {
         ...activeShift,
-        totalAmount: activeShift.totalAmount + totalDebt
+        status: 'closed',
+        endTime: new Date(),
+        finalInventory,
+        finalCash: finalCashAmount,
+        discrepancies: discrepancies.length > 0 ? discrepancies : undefined,
+        closeReason: closeReason || undefined,
+        validationStatus: discrepancies.length > 0 ? 'discrepancy' : 'balanced'
       };
+
       await db_service.saveShift(updatedShift);
-      setActiveShift(updatedShift);
+
+      setActiveShift(null);
+      setShowCloseShiftModal(false);
+      setShowCloseWithReason(false);
+      setFinalCash('');
+      setCloseReason('');
+      setError('');
+      await loadData();
+    } catch (error) {
+      console.error('خطأ في إغلاق الوردية:', error);
+      setError('فشل في إغلاق الوردية');
+    } finally {
+      setIsLoading(false);
     }
-
-    // Log the payment
-    await db_service.logCustomerPayment(
-      customer.id,
-      customer.name,
-      totalDebt,
-      unpaidPurchases,
-      activeShift?.id || '',
-      section
-    );
-
-    loadData();
-    alert(`تم دفع ${totalDebt.toFixed(2)} جنيه من ديون ${customer.name}`);
   };
 
-  // View customer details
-  const handleViewCustomer = async (customer: Customer) => {
-    setViewingCustomer(customer);
-    const purchases = await db_service.getCustomerPurchases(customer.id);
-    setSelectedCustomerPurchases(purchases);
+  const createCustomer = async () => {
+    if (!newCustomerName.trim()) return;
+
+    try {
+      setIsLoading(true);
+
+      const customer: Customer = {
+        id: uuidv4(),
+        name: newCustomerName.trim(),
+        section,
+        createdAt: new Date()
+      };
+
+      await db_service.saveCustomer(customer);
+      setNewCustomerName('');
+      setShowNewCustomerModal(false);
+      await loadData();
+    } catch (error) {
+      console.error('خطأ في إنشاء العميل:', error);
+      setError('فشل في إنشاء العميل');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
-  const cartTotal = cart.reduce((total, item) => total + (item.price * item.quantity), 0);
+  const openCustomerDetails = async (customer: Customer) => {
+    try {
+      setSelectedCustomerDetails(customer);
+      const purchases = await db_service.getCustomerPurchases(customer.id);
+      setCustomerPurchases(purchases.filter(p => !p.isPaid));
+      setShowCustomerDetailsModal(true);
+    } catch (error) {
+      console.error('خطأ في تحميل تفاصيل العميل:', error);
+      setError('فشل في تحميل تفاصيل العميل');
+    }
+  };
 
-  if (loading) {
+  const payAllCustomerDebt = async (customer: Customer) => {
+    if (!activeShift) return;
+
+    try {
+      setIsLoading(true);
+      const purchases = await db_service.getCustomerPurchases(customer.id);
+      const unpaidPurchases = purchases.filter(p => !p.isPaid);
+      
+      let totalDebt = 0;
+      for (const purchase of unpaidPurchases) {
+        totalDebt += purchase.totalAmount;
+        await markAsPaid(purchase);
+      }
+      
+      setShowCustomerDetailsModal(false);
+      await loadData();
+    } catch (error) {
+      console.error('خطأ في دفع جميع ديون العميل:', error);
+      setError('فشل في دفع جميع ديون العميل');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const cartTotal = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+
+  if (!activeShift) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+      <div className="text-center py-12">
+        <Clock className="h-16 w-16 text-gray-400 mx-auto mb-4" />
+        <h2 className="text-2xl font-bold text-gray-900 mb-4">لا توجد وردية نشطة</h2>
+        <p className="text-gray-600 mb-6">ابدأ وردية جديدة لبدء بيع المنتجات</p>
+        <button
+          onClick={startShift}
+          disabled={isLoading}
+          className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg font-medium disabled:opacity-50"
+        >
+          {isLoading ? 'جاري البدء...' : 'بدء الوردية'}
+        </button>
+        {error && (
+          <div className="mt-4 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">
+            {error}
+          </div>
+        )}
       </div>
     );
   }
 
   return (
     <div className="space-y-6">
-      {/* Header */}
+      {/* Shift Header */}
       <div className="bg-white rounded-lg shadow-sm p-6">
-        <div className="flex justify-between items-center">
-          <h1 className="text-2xl font-bold text-gray-900">
-            {section === 'store' ? 'البار' : 'المكملات الغذائية'}
-          </h1>
-          <div className="flex items-center space-x-4">
-            {/* Shift Status */}
-            <div className={`px-4 py-2 rounded-lg flex items-center space-x-2 ${
-              activeShift 
-                ? 'bg-green-100 text-green-800' 
-                : 'bg-red-100 text-red-800'
-            }`}>
-              <Clock className="h-4 w-4" />
-              <span>{activeShift ? 'وردية نشطة' : 'لا توجد وردية نشطة'}</span>
-            </div>
-
-            {/* Shift Controls */}
-            {!activeShift ? (
-              <button
-                onClick={startShift}
-                className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg"
-              >
-                بدء وردية
-              </button>
-            ) : (
-              <div className="flex space-x-2">
-                <button
-                  onClick={() => setShowAddExpense(true)}
-                  className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg flex items-center space-x-2"
-                >
-                  <Minus className="h-4 w-4" />
-                  <span>مصروف</span>
-                </button>
-                <button
-                  onClick={() => setShowAddExternalMoney(true)}
-                  className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg flex items-center space-x-2"
-                >
-                  <Plus className="h-4 w-4" />
-                  <span>أموال خارجية</span>
-                </button>
-                <button
-                  onClick={() => setShowCloseShift(true)}
-                  className="bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded-lg"
-                >
-                  إغلاق الوردية
-                </button>
-              </div>
-            )}
+        <div className="flex justify-between items-center mb-4">
+          <div>
+            <h2 className="text-xl font-bold text-gray-900">الوردية النشطة</h2>
+            <p className="text-gray-600">بدأت: {activeShift.startTime.toLocaleString('ar-EG')}</p>
+          </div>
+          <div className="text-right">
+            <div className="text-2xl font-bold text-green-600">{currentCash.toFixed(2)} جنيه</div>
+            <div className="text-sm text-gray-600">النقدية الحالية</div>
           </div>
         </div>
 
-        {/* Shift Summary */}
-        {activeShift && (
-          <div className="mt-4 grid grid-cols-4 gap-4">
-            <div className="bg-blue-50 rounded-lg p-4">
-              <p className="text-sm text-blue-700">إجمالي المبيعات</p>
-              <p className="text-2xl font-bold text-blue-600">
-                {activeShift.totalAmount.toFixed(2)} جنيه
-              </p>
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <div className="bg-blue-50 p-4 rounded-lg">
+            <div className="text-2xl font-bold text-blue-600">
+              {activeShift.purchases.reduce((sum, p) => sum + p.quantity, 0)}
             </div>
-            <div className="bg-red-50 rounded-lg p-4">
-              <p className="text-sm text-red-700">إجمالي المصروفات</p>
-              <p className="text-2xl font-bold text-red-600">
-                {activeShift.expenses.reduce((total, e) => total + e.amount, 0).toFixed(2)} جنيه
-              </p>
-            </div>
-            <div className="bg-green-50 rounded-lg p-4">
-              <p className="text-sm text-green-700">الأموال الخارجية</p>
-              <p className="text-2xl font-bold text-green-600">
-                {activeShift.externalMoney.reduce((total, e) => total + e.amount, 0).toFixed(2)} جنيه
-              </p>
-            </div>
-            <div className="bg-purple-50 rounded-lg p-4">
-              <p className="text-sm text-purple-700">صافي النقدية</p>
-              <p className="text-2xl font-bold text-purple-600">
-                {(activeShift.totalAmount - 
-                  activeShift.expenses.reduce((total, e) => total + e.amount, 0) +
-                  activeShift.externalMoney.reduce((total, e) => total + e.amount, 0)
-                ).toFixed(2)} جنيه
-              </p>
-            </div>
+            <div className="text-sm text-blue-600">المنتجات المباعة</div>
           </div>
-        )}
+          <div className="bg-green-50 p-4 rounded-lg">
+            <div className="text-2xl font-bold text-green-600">
+              {activeShift.purchases.reduce((sum, p) => sum + (p.price * p.quantity), 0).toFixed(2)} جنيه
+            </div>
+            <div className="text-sm text-green-600">إجمالي المبيعات</div>
+          </div>
+          <div className="bg-red-50 p-4 rounded-lg">
+            <div className="text-2xl font-bold text-red-600">
+              {activeShift.expenses.reduce((sum, e) => sum + e.amount, 0).toFixed(2)} جنيه
+            </div>
+            <div className="text-sm text-red-600">المصروفات</div>
+          </div>
+          <div className="bg-purple-50 p-4 rounded-lg">
+            <div className="text-2xl font-bold text-purple-600">
+              {activeShift.externalMoney.reduce((sum, e) => sum + e.amount, 0).toFixed(2)} جنيه
+            </div>
+            <div className="text-sm text-purple-600">الأموال الخارجية</div>
+          </div>
+        </div>
+
+        <div className="flex space-x-4 mt-4">
+          <button
+            onClick={() => setShowExpenseModal(true)}
+            className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg"
+          >
+            إضافة مصروف
+          </button>
+          <button
+            onClick={() => setShowExternalMoneyModal(true)}
+            className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg"
+          >
+            إضافة أموال خارجية
+          </button>
+          <button
+            onClick={() => setShowCloseShiftModal(true)}
+            className="bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded-lg"
+          >
+            إغلاق الوردية
+          </button>
+        </div>
       </div>
 
-      {/* Tabs */}
+      {/* Error Display */}
+      {error && (
+        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">
+          {error}
+        </div>
+      )}
+
+      {/* Tab Navigation */}
       <div className="bg-white rounded-lg shadow-sm">
         <div className="border-b border-gray-200">
-          <nav className="flex space-x-8 px-6">
+          <nav className="-mb-px flex space-x-8 px-6">
             <button
-              onClick={() => setActiveTab('pos')}
-              className={`flex items-center space-x-2 py-4 px-1 border-b-2 font-medium text-sm ${
-                activeTab === 'pos'
+              onClick={() => setActiveTab('sales')}
+              className={`py-4 px-1 border-b-2 font-medium text-sm ${
+                activeTab === 'sales'
                   ? 'border-blue-500 text-blue-600'
                   : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
               }`}
             >
-              <ShoppingCart className="h-4 w-4" />
-              <span>نقطة البيع</span>
+              المبيعات
             </button>
             <button
               onClick={() => setActiveTab('customers')}
-              className={`flex items-center space-x-2 py-4 px-1 border-b-2 font-medium text-sm ${
+              className={`py-4 px-1 border-b-2 font-medium text-sm ${
                 activeTab === 'customers'
                   ? 'border-blue-500 text-blue-600'
                   : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
               }`}
             >
-              <Users className="h-4 w-4" />
-              <span>العملاء</span>
+              العملاء
             </button>
           </nav>
         </div>
 
         <div className="p-6">
-          {/* POS Tab */}
-          {activeTab === 'pos' && (
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-              {/* Items Grid */}
-              <div className="lg:col-span-2">
-                <h2 className="text-lg font-semibold mb-4">المنتجات</h2>
-                <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                  {items.map(item => (
-                    <div
-                      key={item.id}
-                      className={`border rounded-lg p-4 cursor-pointer transition-colors ${
-                        item.currentAmount <= 0
-                          ? 'bg-gray-100 border-gray-300 cursor-not-allowed'
-                          : 'hover:bg-blue-50 border-gray-200 hover:border-blue-300'
-                      }`}
-                      onClick={() => item.currentAmount > 0 && addToCart(item)}
-                    >
-                      <div className="text-center">
-                        <h3 className="font-medium text-gray-900">{item.name}</h3>
-                        <p className="text-lg font-bold text-blue-600 mt-2">
-                          {item.sellPrice} جنيه
-                        </p>
-                        <p className={`text-sm mt-1 ${
-                          item.currentAmount <= 5 
-                            ? 'text-red-600' 
-                            : item.currentAmount <= 10
-                            ? 'text-yellow-600'
-                            : 'text-green-600'
-                        }`}>
-                          متوفر: {item.currentAmount}
-                        </p>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* Cart */}
-              <div className="bg-gray-50 rounded-lg p-4">
-                <div className="flex justify-between items-center mb-4">
-                  <h2 className="text-lg font-semibold">السلة</h2>
-                  {cart.length > 0 && (
-                    <button
-                      onClick={clearCart}
-                      className="text-red-600 hover:text-red-800 text-sm"
-                    >
-                      مسح الكل
-                    </button>
-                  )}
-                </div>
-
-                {cart.length === 0 ? (
-                  <p className="text-gray-500 text-center py-8">السلة فارغة</p>
-                ) : (
+          {activeTab === 'sales' ? (
+            <>
+              {/* Current Shift Expenses */}
+              {activeShift.expenses.length > 0 && (
+                <div className="bg-white rounded-lg shadow-sm p-6 mb-6">
+                  <h3 className="text-lg font-semibold text-gray-900 mb-4">مصروفات الوردية الحالية</h3>
                   <div className="space-y-3">
-                    {cart.map(item => (
-                      <div key={item.itemId} className="flex justify-between items-center bg-white rounded-lg p-3">
+                    {activeShift.expenses.map(expense => (
+                      <div key={expense.id} className="flex justify-between items-center p-4 bg-red-50 rounded-lg">
                         <div>
-                          <p className="font-medium">{item.name}</p>
-                          <p className="text-sm text-gray-500">
-                            {item.price} جنيه × {item.quantity}
-                          </p>
+                          <div className="font-medium">{expense.reason}</div>
+                          <div className="text-sm text-gray-600">{expense.amount.toFixed(2)} جنيه</div>
+                          <div className="text-xs text-gray-500">
+                            {expense.timestamp.toLocaleString('ar-EG')} - {expense.createdBy}
+                          </div>
                         </div>
-                        <div className="flex items-center space-x-2">
+                        <div className="flex space-x-2">
                           <button
-                            onClick={() => removeFromCart(item.itemId)}
-                            className="text-red-600 hover:text-red-800"
+                            onClick={() => openEditExpenseModal(expense)}
+                            className="bg-blue-600 hover:bg-blue-700 text-white p-2 rounded-lg"
+                            title="تعديل"
                           >
-                            <Minus className="h-4 w-4" />
+                            <Edit className="h-4 w-4" />
                           </button>
-                          <span className="w-8 text-center">{item.quantity}</span>
                           <button
-                            onClick={() => {
-                              const dbItem = items.find(i => i.id === item.itemId);
-                              if (dbItem && item.quantity < dbItem.currentAmount) {
-                                addToCart(dbItem);
-                              }
-                            }}
-                            className="text-green-600 hover:text-green-800"
+                            onClick={() => deleteExpense(expense)}
+                            className="bg-red-600 hover:bg-red-700 text-white p-2 rounded-lg"
+                            title="حذف"
                           >
-                            <Plus className="h-4 w-4" />
+                            <Trash2 className="h-4 w-4" />
                           </button>
                         </div>
                       </div>
                     ))}
-
-                    <div className="border-t pt-3">
-                      <div className="flex justify-between items-center font-bold text-lg">
-                        <span>الإجمالي:</span>
-                        <span>{cartTotal.toFixed(2)} جنيه</span>
-                      </div>
-                    </div>
-
-                    {/* Customer Selection */}
-                    <div className="space-y-2">
-                      <button
-                        onClick={() => setShowCustomerSelect(true)}
-                        className="w-full bg-gray-200 hover:bg-gray-300 text-gray-800 px-4 py-2 rounded-lg"
-                      >
-                        {selectedCustomer ? `العميل: ${selectedCustomer.name}` : 'اختيار عميل (اختياري)'}
-                      </button>
-                      {selectedCustomer && (
-                        <button
-                          onClick={() => setSelectedCustomer(null)}
-                          className="w-full text-red-600 hover:text-red-800 text-sm"
-                        >
-                          إلغاء اختيار العميل
-                        </button>
-                      )}
-                    </div>
-
-                    {/* Purchase Buttons */}
-                    <div className="space-y-2">
-                      <button
-                        onClick={() => processPurchase(true)}
-                        disabled={!activeShift}
-                        className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white px-4 py-2 rounded-lg"
-                      >
-                        بيع نقدي
-                      </button>
-                      {selectedCustomer && (
-                        <button
-                          onClick={() => processPurchase(false)}
-                          disabled={!activeShift}
-                          className="w-full bg-orange-600 hover:bg-orange-700 disabled:bg-gray-400 text-white px-4 py-2 rounded-lg"
-                        >
-                          بيع على الحساب
-                        </button>
-                      )}
-                    </div>
                   </div>
-                )}
-              </div>
-            </div>
-          )}
+                </div>
+              )}
 
-          {/* Customers Tab */}
-          {activeTab === 'customers' && (
-            <div className="space-y-6">
-              <h2 className="text-lg font-semibold">العملاء</h2>
-              
-              <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-gray-200">
-                  <thead className="bg-gray-50">
-                    <tr>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        اسم العميل
-                      </th>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        إجمالي الدين
-                      </th>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        الإجراءات
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody className="bg-white divide-y divide-gray-200">
+              {/* Customer Debt Summary */}
+              {unpaidPurchases.length > 0 && (
+                <div className="bg-white rounded-lg shadow-sm p-6 mb-6">
+                  <h3 className="text-lg font-semibold text-gray-900 mb-4">ديون العملاء</h3>
+                  <div className="space-y-3">
                     {customers.map(customer => {
-                      const customerDebt = customerPurchases
-                        .filter(p => p.customerId === customer.id && !p.isPaid)
-                        .reduce((total, p) => total + p.totalAmount, 0);
+                      const customerDebt = unpaidPurchases
+                        .filter(p => p.customerId === customer.id)
+                        .reduce((sum, p) => sum + p.totalAmount, 0);
+                      
+                      if (customerDebt === 0) return null;
 
                       return (
-                        <tr key={customer.id}>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                            {customer.name}
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                            <span className={`px-2 py-1 rounded-full text-xs ${
-                              customerDebt > 0 ? 'bg-red-100 text-red-800' : 'bg-green-100 text-green-800'
-                            }`}>
-                              {customerDebt.toFixed(2)} جنيه
-                            </span>
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                            <div className="flex space-x-2">
-                              <button
-                                onClick={() => handleViewCustomer(customer)}
-                                className="text-blue-600 hover:text-blue-900 flex items-center space-x-1"
-                              >
-                                <Eye className="h-4 w-4" />
-                                <span>عرض</span>
-                              </button>
-                              {customerDebt > 0 && (
-                                <button
-                                  onClick={() => payCustomerDebt(customer)}
-                                  className="text-green-600 hover:text-green-900 flex items-center space-x-1"
-                                >
-                                  <DollarSign className="h-4 w-4" />
-                                  <span>دفع الكل</span>
-                                </button>
-                              )}
+                        <div key={customer.id} className="flex justify-between items-center p-4 bg-yellow-50 rounded-lg">
+                          <div>
+                            <button
+                              onClick={() => openCustomerDetails(customer)}
+                              className="font-medium text-blue-600 hover:text-blue-800"
+                            >
+                              {customer.name}
+                            </button>
+                            <div className="text-sm text-gray-600">
+                              إجمالي الدين: {customerDebt.toFixed(2)} جنيه
                             </div>
-                          </td>
-                        </tr>
+                          </div>
+                          <div className="flex space-x-2">
+                            <button
+                              onClick={() => payAllCustomerDebt(customer)}
+                              disabled={isLoading}
+                              className="bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded text-sm disabled:opacity-50"
+                            >
+                              دفع الكل
+                            </button>
+                          </div>
+                        </div>
                       );
                     })}
-                  </tbody>
-                </table>
+                  </div>
+                </div>
+              )}
+
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                {/* Items Grid */}
+                <div className="lg:col-span-2">
+                  <div className="bg-white rounded-lg shadow-sm p-6">
+                    <h3 className="text-lg font-semibold text-gray-900 mb-4">المنتجات</h3>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+                      {items.map(item => (
+                        <div
+                          key={item.id}
+                          className={`border rounded-lg p-4 cursor-pointer transition-colors ${
+                            item.currentAmount > 0
+                              ? 'hover:bg-blue-50 border-gray-200'
+                              : 'bg-gray-50 border-gray-300 cursor-not-allowed'
+                          }`}
+                          onClick={() => item.currentAmount > 0 && addToCart(item)}
+                        >
+                          {item.image && (
+                            <img
+                              src={item.image}
+                              alt={item.name}
+                              className="w-full h-32 object-cover rounded-md mb-2"
+                            />
+                          )}
+                          <div className="font-medium text-gray-900">{item.name}</div>
+                          <div className="text-lg font-bold text-blue-600">{item.sellPrice} جنيه</div>
+                          <div className={`text-sm ${item.currentAmount > 0 ? 'text-green-600' : 'text-red-600'}`}>
+                            المخزون: {item.currentAmount}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Cart */}
+                <div className="bg-white rounded-lg shadow-sm p-6">
+                  <h3 className="text-lg font-semibold text-gray-900 mb-4">السلة</h3>
+                  
+                  {/* Customer Purchase Toggle */}
+                  <div className="mb-4">
+                    <label className="flex items-center">
+                      <input
+                        type="checkbox"
+                        checked={isCustomerPurchase}
+                        onChange={(e) => setIsCustomerPurchase(e.target.checked)}
+                        className="mr-2"
+                      />
+                      <span className="text-sm">شراء عميل (غير مدفوع)</span>
+                    </label>
+                  </div>
+
+                  {/* Customer Selection */}
+                  {isCustomerPurchase && (
+                    <div className="mb-4">
+                      <div className="flex space-x-2 mb-2">
+                        <select
+                          value={selectedCustomer?.id || ''}
+                          onChange={(e) => {
+                            const customer = customers.find(c => c.id === e.target.value);
+                            setSelectedCustomer(customer || null);
+                          }}
+                          className="flex-1 border border-gray-300 rounded-lg px-3 py-2"
+                        >
+                          <option value="">اختر عميل</option>
+                          {customers.map(customer => (
+                            <option key={customer.id} value={customer.id}>
+                              {customer.name}
+                            </option>
+                          ))}
+                        </select>
+                        <button
+                          onClick={() => setShowNewCustomerModal(true)}
+                          className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded-lg"
+                        >
+                          <Plus className="h-4 w-4" />
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Cart Items */}
+                  <div className="space-y-3 mb-4">
+                    {cart.map(cartItem => (
+                      <div key={cartItem.itemId} className="flex justify-between items-center p-3 bg-gray-50 rounded-lg">
+                        <div>
+                          <div className="font-medium">{cartItem.name}</div>
+                          <div className="text-sm text-gray-600">{cartItem.price} جنيه للقطعة</div>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                          <button
+                            onClick={() => updateCartQuantity(cartItem.itemId, cartItem.quantity - 1)}
+                            className="bg-gray-200 hover:bg-gray-300 text-gray-700 w-8 h-8 rounded-full flex items-center justify-center"
+                          >
+                            -
+                          </button>
+                          <span className="w-8 text-center">{cartItem.quantity}</span>
+                          <button
+                            onClick={() => updateCartQuantity(cartItem.itemId, cartItem.quantity + 1)}
+                            className="bg-gray-200 hover:bg-gray-300 text-gray-700 w-8 h-8 rounded-full flex items-center justify-center"
+                          >
+                            +
+                          </button>
+                          <button
+                            onClick={() => removeFromCart(cartItem.itemId)}
+                            className="text-red-600 hover:text-red-700 ml-2"
+                          >
+                            <X className="h-4 w-4" />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Cart Total */}
+                  {cart.length > 0 && (
+                    <div className="border-t pt-4">
+                      <div className="flex justify-between items-center mb-4">
+                        <span className="text-lg font-semibold">الإجمالي:</span>
+                        <span className="text-xl font-bold text-blue-600">{cartTotal.toFixed(2)} جنيه</span>
+                      </div>
+                      <button
+                        onClick={processSale}
+                        disabled={isLoading || (isCustomerPurchase && !selectedCustomer)}
+                        className="w-full bg-green-600 hover:bg-green-700 text-white py-3 rounded-lg font-medium disabled:opacity-50"
+                      >
+                        {isLoading ? 'جاري المعالجة...' : isCustomerPurchase ? 'إضافة لحساب العميل' : 'إتمام البيع'}
+                      </button>
+                    </div>
+                  )}
+                </div>
               </div>
+            </>
+          ) : (
+            /* Customers Tab */
+            <div className="space-y-6">
+              <div className="flex justify-between items-center">
+                <h3 className="text-lg font-semibold text-gray-900">العملاء وديونهم</h3>
+                <button
+                  onClick={() => setShowNewCustomerModal(true)}
+                  className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg flex items-center space-x-2"
+                >
+                  <Plus className="h-4 w-4" />
+                  <span>إضافة عميل</span>
+                </button>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {customers.map(customer => {
+                  const customerDebt = unpaidPurchases
+                    .filter(p => p.customerId === customer.id)
+                    .reduce((sum, p) => sum + p.totalAmount, 0);
+                  
+                  const customerPurchasesList = unpaidPurchases.filter(p => p.customerId === customer.id);
+
+                  return (
+                    <div key={customer.id} className="bg-white border rounded-lg p-4 shadow-sm">
+                      <div className="flex justify-between items-start mb-3">
+                        <div>
+                          <h4 className="font-semibold text-gray-900">{customer.name}</h4>
+                          <p className="text-sm text-gray-600">
+                            تاريخ الإنشاء: {customer.createdAt.toLocaleDateString('ar-EG')}
+                          </p>
+                        </div>
+                        <button
+                          onClick={() => openCustomerDetails(customer)}
+                          className="text-blue-600 hover:text-blue-800"
+                          title="عرض التفاصيل"
+                        >
+                          <Eye className="h-4 w-4" />
+                        </button>
+                      </div>
+
+                      <div className="space-y-2">
+                        <div className="flex justify-between items-center">
+                          <span className="text-sm text-gray-600">إجمالي الدين:</span>
+                          <span className={`font-semibold ${customerDebt > 0 ? 'text-red-600' : 'text-green-600'}`}>
+                            {customerDebt.toFixed(2)} جنيه
+                          </span>
+                        </div>
+                        
+                        <div className="flex justify-between items-center">
+                          <span className="text-sm text-gray-600">عدد المشتريات غير المدفوعة:</span>
+                          <span className="font-semibold text-gray-900">{customerPurchasesList.length}</span>
+                        </div>
+                      </div>
+
+                      {customerDebt > 0 && (
+                        <div className="mt-4 space-y-2">
+                          <div className="text-xs text-gray-500">المنتجات المستحقة:</div>
+                          <div className="space-y-1 max-h-20 overflow-y-auto">
+                            {customerPurchasesList.slice(0, 3).map((purchase, index) => (
+                              <div key={index} className="text-xs text-gray-600">
+                                • {purchase.items.map(item => `${item.name} (${item.quantity})`).join(', ')}
+                              </div>
+                            ))}
+                            {customerPurchasesList.length > 3 && (
+                              <div className="text-xs text-gray-500">
+                                ... و {customerPurchasesList.length - 3} مشتريات أخرى
+                              </div>
+                            )}
+                          </div>
+                          
+                          <button
+                            onClick={() => payAllCustomerDebt(customer)}
+                            disabled={isLoading || !activeShift}
+                            className="w-full bg-green-600 hover:bg-green-700 text-white py-2 px-3 rounded text-sm disabled:opacity-50 mt-3"
+                          >
+                            دفع جميع الديون ({customerDebt.toFixed(2)} جنيه)
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+
+              {customers.length === 0 && (
+                <div className="text-center py-8">
+                  <Users className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+                  <p className="text-gray-600">لا يوجد عملاء مسجلين</p>
+                  <button
+                    onClick={() => setShowNewCustomerModal(true)}
+                    className="mt-4 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg"
+                  >
+                    إضافة أول عميل
+                  </button>
+                </div>
+              )}
             </div>
           )}
         </div>
       </div>
 
-      {/* Modals */}
-      {/* Customer Select Modal */}
-      {showCustomerSelect && (
+      {/* Customer Details Modal */}
+      {showCustomerDetailsModal && selectedCustomerDetails && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-full max-w-md">
-            <h3 className="text-lg font-semibold mb-4">اختيار عميل</h3>
-            <div className="space-y-2 max-h-64 overflow-y-auto">
-              {customers.map(customer => (
-                <button
-                  key={customer.id}
-                  onClick={() => {
-                    setSelectedCustomer(customer);
-                    setShowCustomerSelect(false);
-                  }}
-                  className="w-full text-right px-4 py-2 hover:bg-gray-100 rounded-lg"
-                >
-                  {customer.name}
-                </button>
+          <div className="bg-white rounded-lg p-6 w-full max-w-4xl max-h-[90vh] overflow-y-auto">
+            <h3 className="text-lg font-semibold mb-4">تفاصيل ديون العميل: {selectedCustomerDetails.name}</h3>
+            
+            <div className="space-y-4">
+              {customerPurchases.map(purchase => (
+                <div key={purchase.id} className="border rounded-lg p-4">
+                  <div className="flex justify-between items-start mb-2">
+                    <div>
+                      <div className="font-medium">المبلغ: {purchase.totalAmount.toFixed(2)} جنيه</div>
+                      <div className="text-sm text-gray-600">
+                        التاريخ: {purchase.timestamp.toLocaleString('ar-EG')}
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => openPaymentModal(purchase)}
+                      className="bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded text-sm"
+                    >
+                      دفع
+                    </button>
+                  </div>
+                  
+                  <div className="mt-2">
+                    <div className="text-sm font-medium text-gray-700 mb-1">المنتجات:</div>
+                    <div className="space-y-1">
+                      {purchase.items.map((item, index) => (
+                        <div key={index} className="text-sm text-gray-600 flex justify-between">
+                          <span>{item.name} × {item.quantity}</span>
+                          <span>{(item.price * item.quantity).toFixed(2)} جنيه</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
               ))}
             </div>
-            <div className="flex justify-end mt-4">
+
+            <div className="flex justify-end space-x-3 mt-6">
               <button
-                onClick={() => setShowCustomerSelect(false)}
-                className="px-4 py-2 text-gray-600 hover:text-gray-800"
+                onClick={() => setShowCustomerDetailsModal(false)}
+                className="bg-gray-300 hover:bg-gray-400 text-gray-700 px-4 py-2 rounded-lg"
               >
-                إلغاء
+                إغلاق
+              </button>
+              <button
+                onClick={() => payAllCustomerDebt(selectedCustomerDetails)}
+                disabled={isLoading || customerPurchases.length === 0}
+                className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg disabled:opacity-50"
+              >
+                دفع جميع الديون
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Add Expense Modal */}
-      {showAddExpense && (
+      {/* Payment Modal */}
+      {showPaymentModal && selectedPurchaseForPayment && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-md">
+            <h3 className="text-lg font-semibold mb-4">دفع دين العميل</h3>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">المبلغ المدفوع (جنيه)</label>
+                <input
+                  type="number"
+                  value={paymentAmount}
+                  onChange={(e) => setPaymentAmount(e.target.value)}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                  placeholder="0.00"
+                />
+                <div className="text-xs text-gray-500 mt-1">
+                  إجمالي الدين: {selectedPurchaseForPayment.totalAmount.toFixed(2)} جنيه
+                </div>
+              </div>
+            </div>
+            <div className="flex space-x-3 mt-6">
+              <button
+                onClick={() => setShowPaymentModal(false)}
+                className="flex-1 bg-gray-300 hover:bg-gray-400 text-gray-700 py-2 rounded-lg"
+              >
+                إلغاء
+              </button>
+              <button
+                onClick={() => markAsPaid(selectedPurchaseForPayment, parseFloat(paymentAmount))}
+                disabled={!paymentAmount || parseFloat(paymentAmount) <= 0}
+                className="flex-1 bg-green-600 hover:bg-green-700 text-white py-2 rounded-lg disabled:opacity-50"
+              >
+                تأكيد الدفع
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Expense Modal */}
+      {showExpenseModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg p-6 w-full max-w-md">
             <h3 className="text-lg font-semibold mb-4">إضافة مصروف</h3>
             <div className="space-y-4">
-              <input
-                type="number"
-                placeholder="المبلغ"
-                value={expenseForm.amount}
-                onChange={(e) => setExpenseForm({ ...expenseForm, amount: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg"
-              />
-              <input
-                type="text"
-                placeholder="السبب"
-                value={expenseForm.reason}
-                onChange={(e) => setExpenseForm({ ...expenseForm, reason: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg"
-              />
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">المبلغ (جنيه)</label>
+                <input
+                  type="number"
+                  value={expenseAmount}
+                  onChange={(e) => setExpenseAmount(e.target.value)}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                  placeholder="0.00"
+                  max={currentCash}
+                />
+                <div className="text-xs text-gray-500 mt-1">
+                  الحد الأقصى: {currentCash.toFixed(2)} جنيه
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">السبب</label>
+                <input
+                  type="text"
+                  value={expenseReason}
+                  onChange={(e) => setExpenseReason(e.target.value)}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                  placeholder="أدخل سبب المصروف"
+                />
+              </div>
             </div>
-            <div className="flex justify-end space-x-2 mt-6">
+            <div className="flex space-x-3 mt-6">
               <button
-                onClick={() => setShowAddExpense(false)}
-                className="px-4 py-2 text-gray-600 hover:text-gray-800"
+                onClick={() => setShowExpenseModal(false)}
+                className="flex-1 bg-gray-300 hover:bg-gray-400 text-gray-700 py-2 rounded-lg"
               >
                 إلغاء
               </button>
               <button
                 onClick={addExpense}
-                className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700"
+                disabled={!expenseAmount || !expenseReason || parseFloat(expenseAmount) > currentCash}
+                className="flex-1 bg-red-600 hover:bg-red-700 text-white py-2 rounded-lg disabled:opacity-50"
               >
-                إضافة
+                إضافة مصروف
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Add External Money Modal */}
-      {showAddExternalMoney && (
+      {/* Edit Expense Modal */}
+      {showEditExpenseModal && editingExpense && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-md">
+            <h3 className="text-lg font-semibold mb-4">تعديل المصروف</h3>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">المبلغ (جنيه)</label>
+                <input
+                  type="number"
+                  value={expenseAmount}
+                  onChange={(e) => setExpenseAmount(e.target.value)}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                  placeholder="0.00"
+                  max={currentCash + editingExpense.amount}
+                />
+                <div className="text-xs text-gray-500 mt-1">
+                  الحد الأقصى: {(currentCash + editingExpense.amount).toFixed(2)} جنيه
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">السبب</label>
+                <input
+                  type="text"
+                  value={expenseReason}
+                  onChange={(e) => setExpenseReason(e.target.value)}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                  placeholder="أدخل سبب المصروف"
+                />
+              </div>
+            </div>
+            <div className="flex space-x-3 mt-6">
+              <button
+                onClick={() => {
+                  setShowEditExpenseModal(false);
+                  setEditingExpense(null);
+                  setExpenseAmount('');
+                  setExpenseReason('');
+                }}
+                className="flex-1 bg-gray-300 hover:bg-gray-400 text-gray-700 py-2 rounded-lg"
+              >
+                إلغاء
+              </button>
+              <button
+                onClick={editExpense}
+                disabled={!expenseAmount || !expenseReason || parseFloat(expenseAmount) > (currentCash + editingExpense.amount)}
+                className="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-2 rounded-lg disabled:opacity-50"
+              >
+                حفظ التعديل
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* External Money Modal */}
+      {showExternalMoneyModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg p-6 w-full max-w-md">
             <h3 className="text-lg font-semibold mb-4">إضافة أموال خارجية</h3>
             <div className="space-y-4">
-              <input
-                type="number"
-                placeholder="المبلغ"
-                value={externalMoneyForm.amount}
-                onChange={(e) => setExternalMoneyForm({ ...externalMoneyForm, amount: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg"
-              />
-              <input
-                type="text"
-                placeholder="السبب"
-                value={externalMoneyForm.reason}
-                onChange={(e) => setExternalMoneyForm({ ...externalMoneyForm, reason: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg"
-              />
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">المبلغ (جنيه)</label>
+                <input
+                  type="number"
+                  value={externalAmount}
+                  onChange={(e) => setExternalAmount(e.target.value)}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                  placeholder="0.00"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">السبب</label>
+                <input
+                  type="text"
+                  value={externalReason}
+                  onChange={(e) => setExternalReason(e.target.value)}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                  placeholder="أدخل سبب الأموال الخارجية"
+                />
+              </div>
             </div>
-            <div className="flex justify-end space-x-2 mt-6">
+            <div className="flex space-x-3 mt-6">
               <button
-                onClick={() => setShowAddExternalMoney(false)}
-                className="px-4 py-2 text-gray-600 hover:text-gray-800"
+                onClick={() => setShowExternalMoneyModal(false)}
+                className="flex-1 bg-gray-300 hover:bg-gray-400 text-gray-700 py-2 rounded-lg"
               >
                 إلغاء
               </button>
               <button
                 onClick={addExternalMoney}
-                className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
+                disabled={!externalAmount || !externalReason}
+                className="flex-1 bg-purple-600 hover:bg-purple-700 text-white py-2 rounded-lg disabled:opacity-50"
               >
-                إضافة
+                إضافة أموال
               </button>
             </div>
           </div>
@@ -822,155 +1271,135 @@ const NormalUserView: React.FC<NormalUserViewProps> = ({ section }) => {
       )}
 
       {/* Close Shift Modal */}
-      {showCloseShift && activeShift && (
+      {showCloseShiftModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-full max-w-2xl max-h-[80vh] overflow-y-auto">
+          <div className="bg-white rounded-lg p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
             <h3 className="text-lg font-semibold mb-4">إغلاق الوردية</h3>
             
-            <div className="space-y-4">
+            <div className="space-y-6">
+              {/* Final Cash */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  النقدية النهائية
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  عدد النقدية النهائي (جنيه)
                 </label>
                 <input
                   type="number"
-                  placeholder="المبلغ النقدي الموجود"
-                  value={closeShiftForm.finalCash}
-                  onChange={(e) => setCloseShiftForm({ ...closeShiftForm, finalCash: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                  value={finalCash}
+                  onChange={(e) => setFinalCash(e.target.value)}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                  placeholder="0.00"
                 />
               </div>
 
+              {/* Final Inventory */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  جرد المخزون النهائي
+                  عدد المخزون النهائي
                 </label>
-                <div className="space-y-2 max-h-48 overflow-y-auto">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-h-60 overflow-y-auto">
                   {items.map(item => (
-                    <div key={item.id} className="flex justify-between items-center p-2 border rounded">
-                      <span>{item.name}</span>
+                    <div key={item.id} className="flex justify-between items-center p-3 bg-gray-50 rounded-lg">
+                      <div>
+                        <div className="font-medium">{item.name}</div>
+                        <div className="text-xs text-gray-500">
+                          الحالي: {item.currentAmount}
+                        </div>
+                      </div>
                       <input
                         type="number"
-                        value={closeShiftForm.finalInventory[item.id] || item.currentAmount}
-                        onChange={(e) => setCloseShiftForm({
-                          ...closeShiftForm,
-                          finalInventory: {
-                            ...closeShiftForm.finalInventory,
-                            [item.id]: parseInt(e.target.value) || 0
-                          }
+                        value={finalInventory[item.id] || 0}
+                        onChange={(e) => setFinalInventory({
+                          ...finalInventory,
+                          [item.id]: parseInt(e.target.value) || 0
                         })}
-                        className="w-20 px-2 py-1 border border-gray-300 rounded"
+                        className="w-20 border border-gray-300 rounded px-2 py-1 text-center"
+                        min="0"
                       />
                     </div>
                   ))}
                 </div>
               </div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  ملاحظات الإغلاق
-                </label>
-                <textarea
-                  placeholder="أي ملاحظات أو أسباب للتضارب"
-                  value={closeShiftForm.closeReason}
-                  onChange={(e) => setCloseShiftForm({ ...closeShiftForm, closeReason: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg"
-                  rows={3}
-                />
-              </div>
+              {/* Close Reason - only show if forcing close */}
+              {showCloseWithReason && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    سبب الإغلاق (مطلوب)
+                  </label>
+                  <textarea
+                    value={closeReason}
+                    onChange={(e) => setCloseReason(e.target.value)}
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                    rows={3}
+                    placeholder="يجب إدخال سبب صالح لإغلاق الوردية مع وجود تضارب..."
+                    required
+                  />
+                </div>
+              )}
             </div>
 
-            <div className="flex justify-end space-x-2 mt-6">
+            <div className="flex space-x-3 mt-6">
               <button
-                onClick={() => setShowCloseShift(false)}
-                className="px-4 py-2 text-gray-600 hover:text-gray-800"
+                onClick={() => {
+                  setShowCloseShiftModal(false);
+                  setShowCloseWithReason(false);
+                  setCloseReason('');
+                }}
+                className="flex-1 bg-gray-300 hover:bg-gray-400 text-gray-700 py-2 rounded-lg"
               >
                 إلغاء
               </button>
-              <button
-                onClick={closeShift}
-                className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700"
-              >
-                إغلاق الوردية
-              </button>
+              {!showCloseWithReason ? (
+                <button
+                  onClick={() => closeShift(false)}
+                  disabled={!finalCash}
+                  className="flex-1 bg-green-600 hover:bg-green-700 text-white py-2 rounded-lg disabled:opacity-50"
+                >
+                  إغلاق الوردية
+                </button>
+              ) : (
+                <button
+                  onClick={() => closeShift(true)}
+                  disabled={!finalCash || !closeReason.trim()}
+                  className="flex-1 bg-red-600 hover:bg-red-700 text-white py-2 rounded-lg disabled:opacity-50"
+                >
+                  إغلاق مع السبب
+                </button>
+              )}
             </div>
           </div>
         </div>
       )}
 
-      {/* View Customer Modal */}
-      {viewingCustomer && (
+      {/* New Customer Modal */}
+      {showNewCustomerModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-full max-w-4xl max-h-[80vh] overflow-y-auto">
-            <div className="flex justify-between items-center mb-4">
-              <h3 className="text-lg font-semibold">تفاصيل العميل: {viewingCustomer.name}</h3>
-              <button
-                onClick={() => setViewingCustomer(null)}
-                className="text-gray-500 hover:text-gray-700"
-              >
-                ✕
-              </button>
+          <div className="bg-white rounded-lg p-6 w-full max-w-md">
+            <h3 className="text-lg font-semibold mb-4">إضافة عميل جديد</h3>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">اسم العميل</label>
+              <input
+                type="text"
+                value={newCustomerName}
+                onChange={(e) => setNewCustomerName(e.target.value)}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                placeholder="أدخل اسم العميل"
+              />
             </div>
-            
-            <div className="space-y-4">
-              <div className="bg-blue-50 rounded-lg p-4">
-                <h4 className="font-semibold text-blue-900 mb-2">ملخص الدين</h4>
-                <p className="text-2xl font-bold text-blue-600">
-                  {selectedCustomerPurchases
-                    .filter(p => !p.isPaid)
-                    .reduce((total, p) => total + p.totalAmount, 0)
-                    .toFixed(2)} جنيه
-                </p>
-              </div>
-
-              <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-gray-200">
-                  <thead className="bg-gray-50">
-                    <tr>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        التاريخ
-                      </th>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        العناصر
-                      </th>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        المبلغ الإجمالي
-                      </th>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        الحالة
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody className="bg-white divide-y divide-gray-200">
-                    {selectedCustomerPurchases.map(purchase => (
-                      <tr key={purchase.id}>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                          {purchase.timestamp.toLocaleDateString('ar-EG')}
-                        </td>
-                        <td className="px-6 py-4 text-sm text-gray-500">
-                          {purchase.items.map(item => (
-                            <div key={item.itemId}>
-                              {item.name} × {item.quantity}
-                            </div>
-                          ))}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                          {purchase.totalAmount.toFixed(2)} جنيه
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <span className={`px-2 py-1 rounded-full text-xs ${
-                            purchase.isPaid 
-                              ? 'bg-green-100 text-green-800' 
-                              : 'bg-red-100 text-red-800'
-                          }`}>
-                            {purchase.isPaid ? 'مدفوع' : 'غير مدفوع'}
-                          </span>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+            <div className="flex space-x-3 mt-6">
+              <button
+                onClick={() => setShowNewCustomerModal(false)}
+                className="flex-1 bg-gray-300 hover:bg-gray-400 text-gray-700 py-2 rounded-lg"
+              >
+                إلغاء
+              </button>
+              <button
+                onClick={createCustomer}
+                disabled={!newCustomerName.trim()}
+                className="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-2 rounded-lg disabled:opacity-50"
+              >
+                إضافة عميل
+              </button>
             </div>
           </div>
         </div>

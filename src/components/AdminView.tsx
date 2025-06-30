@@ -1,13 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Edit, Trash2, Eye, Users, Package, DollarSign, Calendar, FileText, RotateCcw, AlertTriangle } from 'lucide-react';
+import { Plus, Edit, Trash2, Eye, Users, Package, DollarSign, BarChart3, FileText, Settings, Download, Upload, Camera, X, Save, AlertTriangle } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
-import { useRealtime } from '../hooks/useRealtime';
 import { db_service } from '../services/database';
-import { 
-  Item, Category, Customer, CustomerPurchase, Shift, Supply, 
-  SupplementDebt, SupplementDebtTransaction, AdminLog, MonthlyArchive,
-  ExternalMoney, Expense
-} from '../types';
+import { useRealtime } from '../hooks/useRealtime';
+import { Item, Category, Customer, CustomerPurchase, Shift, Supply, User, AdminLog, SupplementDebt, SupplementDebtTransaction, MonthlyArchive } from '../types';
 import { v4 as uuidv4 } from 'uuid';
 import { generateShiftsPDF, generateMonthlySummaryPDF } from '../utils/pdfGenerator';
 
@@ -17,62 +13,87 @@ interface AdminViewProps {
 
 const AdminView: React.FC<AdminViewProps> = ({ section }) => {
   const { user } = useAuth();
-  const [activeTab, setActiveTab] = useState<'inventory' | 'customers' | 'shifts' | 'debt' | 'reports' | 'logs'>('inventory');
-  
-  // State for all data
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'items' | 'customers' | 'shifts' | 'supplies' | 'users' | 'logs' | 'debt' | 'archives'>('dashboard');
   const [items, setItems] = useState<Item[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
-  const [customerPurchases, setCustomerPurchases] = useState<CustomerPurchase[]>([]);
   const [shifts, setShifts] = useState<Shift[]>([]);
   const [supplies, setSupplies] = useState<Supply[]>([]);
+  const [users, setUsers] = useState<User[]>([]);
+  const [adminLogs, setAdminLogs] = useState<AdminLog[]>([]);
   const [supplementDebt, setSupplementDebt] = useState<SupplementDebt | null>(null);
   const [debtTransactions, setDebtTransactions] = useState<SupplementDebtTransaction[]>([]);
-  const [adminLogs, setAdminLogs] = useState<AdminLog[]>([]);
   const [monthlyArchives, setMonthlyArchives] = useState<MonthlyArchive[]>([]);
+  const [unpaidPurchases, setUnpaidPurchases] = useState<CustomerPurchase[]>([]);
   
-  // UI state
-  const [loading, setLoading] = useState(true);
-  const [showAddItem, setShowAddItem] = useState(false);
-  const [showAddCategory, setShowAddCategory] = useState(false);
-  const [showAddCustomer, setShowAddCustomer] = useState(false);
-  const [showSupplyForm, setShowSupplyForm] = useState(false);
-  const [showDebtForm, setShowDebtForm] = useState(false);
+  // Modal states
+  const [showItemModal, setShowItemModal] = useState(false);
+  const [showCategoryModal, setShowCategoryModal] = useState(false);
+  const [showCustomerModal, setShowCustomerModal] = useState(false);
+  const [showSupplyModal, setShowSupplyModal] = useState(false);
+  const [showUserModal, setShowUserModal] = useState(false);
+  const [showDebtModal, setShowDebtModal] = useState(false);
+  const [showCustomerDetailsModal, setShowCustomerDetailsModal] = useState(false);
+  const [showEditDebtTransactionModal, setShowEditDebtTransactionModal] = useState(false);
+  
+  // Edit states
   const [editingItem, setEditingItem] = useState<Item | null>(null);
+  const [editingCategory, setEditingCategory] = useState<Category | null>(null);
   const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null);
-  const [viewingCustomer, setViewingCustomer] = useState<Customer | null>(null);
-  const [selectedCustomerPurchases, setSelectedCustomerPurchases] = useState<CustomerPurchase[]>([]);
+  const [editingUser, setEditingUser] = useState<User | null>(null);
+  const [editingDebtTransaction, setEditingDebtTransaction] = useState<SupplementDebtTransaction | null>(null);
+  const [selectedCustomerDetails, setSelectedCustomerDetails] = useState<Customer | null>(null);
+  const [customerPurchases, setCustomerPurchases] = useState<CustomerPurchase[]>([]);
   
-  // Form state
-  const [newItem, setNewItem] = useState({
+  // Form states
+  const [itemForm, setItemForm] = useState({
     name: '',
     sellPrice: '',
     costPrice: '',
     currentAmount: '',
-    categoryId: '',
-    image: ''
+    image: '',
+    categoryId: ''
   });
-  
-  const [newCategory, setNewCategory] = useState({ name: '' });
-  const [newCustomer, setNewCustomer] = useState({ name: '' });
-  const [supplyItems, setSupplyItems] = useState<Record<string, number>>({});
+  const [categoryForm, setCategoryForm] = useState({ name: '' });
+  const [customerForm, setCustomerForm] = useState({ name: '' });
+  const [userForm, setUserForm] = useState({
+    username: '',
+    password: '',
+    role: 'normal' as 'normal' | 'admin'
+  });
   const [debtForm, setDebtForm] = useState({
-    type: 'payment' as 'payment' | 'debt',
+    type: 'debt' as 'payment' | 'debt',
     amount: '',
     note: ''
   });
+  const [supplyForm, setSupplyForm] = useState<Record<string, string>>({});
+  
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState('');
 
   // Load data
+  useEffect(() => {
+    loadData();
+  }, [section]);
+
+  // Real-time updates
+  useRealtime((event) => {
+    if (event.section === section || !event.section) {
+      loadData();
+    }
+  }, [section]);
+
   const loadData = async () => {
     try {
-      setLoading(true);
       const [
         itemsData,
         categoriesData,
         customersData,
         shiftsData,
         suppliesData,
+        usersData,
         logsData,
+        unpaidData,
         archivesData
       ] = await Promise.all([
         db_service.getItemsBySection(section),
@@ -80,7 +101,9 @@ const AdminView: React.FC<AdminViewProps> = ({ section }) => {
         db_service.getCustomersBySection(section),
         db_service.getShiftsBySection(section),
         db_service.getSuppliesBySection(section),
+        db_service.getAllUsers(),
         db_service.getAllAdminLogs(),
+        db_service.getUnpaidCustomerPurchases(section),
         db_service.getMonthlyArchives(section)
       ]);
 
@@ -89,282 +112,515 @@ const AdminView: React.FC<AdminViewProps> = ({ section }) => {
       setCustomers(customersData);
       setShifts(shiftsData);
       setSupplies(suppliesData);
+      setUsers(usersData);
       setAdminLogs(logsData.filter(log => !log.section || log.section === section));
+      setUnpaidPurchases(unpaidData);
       setMonthlyArchives(archivesData);
 
-      // Load unpaid customer purchases
-      const unpaidPurchases = await db_service.getUnpaidCustomerPurchases(section);
-      setCustomerPurchases(unpaidPurchases);
-
-      // Load supplement debt if in supplement section
+      // Load supplement debt data if in supplement section
       if (section === 'supplement') {
-        const debt = await db_service.getSupplementDebt();
-        const transactions = await db_service.getSupplementDebtTransactions();
-        setSupplementDebt(debt);
-        setDebtTransactions(transactions);
+        const [debtData, transactionsData] = await Promise.all([
+          db_service.getSupplementDebt(),
+          db_service.getSupplementDebtTransactions()
+        ]);
+        setSupplementDebt(debtData);
+        setDebtTransactions(transactionsData);
       }
     } catch (error) {
-      console.error('Error loading data:', error);
-    } finally {
-      setLoading(false);
+      console.error('خطأ في تحميل البيانات:', error);
+      setError('فشل في تحميل البيانات');
     }
   };
 
-  useEffect(() => {
-    loadData();
-  }, [section]);
-
-  // Real-time updates
-  useRealtime((event) => {
-    if (event.section && event.section !== section) return;
-    
-    switch (event.type) {
-      case 'ITEM_UPDATED':
-        loadData();
-        break;
-      case 'CUSTOMER_UPDATED':
-        loadData();
-        break;
-      case 'SHIFT_UPDATED':
-        loadData();
-        break;
-      case 'SUPPLY_ADDED':
-        loadData();
-        break;
-      case 'DEBT_UPDATED':
-        if (section === 'supplement') {
-          loadData();
-        }
-        break;
-      case 'ADMIN_LOG_ADDED':
-        loadData();
-        break;
-    }
-  }, [section]);
-
-  // Item management
-  const handleAddItem = async () => {
-    if (!newItem.name || !newItem.sellPrice || !newItem.costPrice) return;
-
-    const item: Item = {
-      id: uuidv4(),
-      name: newItem.name,
-      sellPrice: parseFloat(newItem.sellPrice),
-      costPrice: parseFloat(newItem.costPrice),
-      currentAmount: parseInt(newItem.currentAmount) || 0,
-      categoryId: newItem.categoryId || undefined,
-      image: newItem.image || undefined,
-      section,
-      createdAt: new Date(),
-      updatedAt: new Date()
-    };
-
-    await db_service.saveItem(item);
-    setNewItem({ name: '', sellPrice: '', costPrice: '', currentAmount: '', categoryId: '', image: '' });
-    setShowAddItem(false);
-    loadData();
-  };
-
-  const handleEditItem = async () => {
-    if (!editingItem) return;
-
-    const updatedItem = {
-      ...editingItem,
-      updatedAt: new Date()
-    };
-
-    await db_service.saveItem(updatedItem);
-    setEditingItem(null);
-    loadData();
-  };
-
-  const handleDeleteItem = async (id: string) => {
-    if (confirm('هل أنت متأكد من حذف هذا العنصر؟')) {
-      await db_service.deleteItem(id);
-      loadData();
-    }
-  };
-
-  // Category management
-  const handleAddCategory = async () => {
-    if (!newCategory.name) return;
-
-    const category: Category = {
-      id: uuidv4(),
-      name: newCategory.name,
-      section,
-      createdAt: new Date()
-    };
-
-    await db_service.saveCategory(category);
-    setNewCategory({ name: '' });
-    setShowAddCategory(false);
-    loadData();
-  };
-
-  const handleDeleteCategory = async (id: string) => {
-    if (confirm('هل أنت متأكد من حذف هذه الفئة؟')) {
-      await db_service.deleteCategory(id);
-      loadData();
-    }
-  };
-
-  // Customer management
-  const handleAddCustomer = async () => {
-    if (!newCustomer.name) return;
-
-    const customer: Customer = {
-      id: uuidv4(),
-      name: newCustomer.name,
-      section,
-      createdAt: new Date()
-    };
-
-    await db_service.saveCustomer(customer);
-    setNewCustomer({ name: '' });
-    setShowAddCustomer(false);
-    loadData();
-  };
-
-  const handleEditCustomer = async () => {
-    if (!editingCustomer) return;
-
-    await db_service.saveCustomer(editingCustomer);
-    setEditingCustomer(null);
-    loadData();
-  };
-
-  const handleDeleteCustomer = async (id: string) => {
-    if (confirm('هل أنت متأكد من حذف هذا العميل؟')) {
-      await db_service.deleteCustomer(id);
-      loadData();
-    }
-  };
-
-  const handleViewCustomer = async (customer: Customer) => {
-    setViewingCustomer(customer);
-    const purchases = await db_service.getCustomerPurchases(customer.id);
-    setSelectedCustomerPurchases(purchases);
-  };
-
-  // Supply management
-  const handleAddSupply = async () => {
-    const totalCost = Object.entries(supplyItems).reduce((total, [itemId, quantity]) => {
-      const item = items.find(i => i.id === itemId);
-      return total + (item ? item.costPrice * quantity : 0);
-    }, 0);
-
-    if (totalCost === 0) return;
-
-    const supply: Supply = {
-      id: uuidv4(),
-      section,
-      items: supplyItems,
-      totalCost,
-      timestamp: new Date(),
-      createdBy: user?.username || 'Unknown'
-    };
-
-    // Update item quantities
-    for (const [itemId, quantity] of Object.entries(supplyItems)) {
-      const item = items.find(i => i.id === itemId);
-      if (item) {
-        const updatedItem = {
-          ...item,
-          currentAmount: item.currentAmount + quantity,
-          updatedAt: new Date()
-        };
-        await db_service.saveItem(updatedItem);
-      }
-    }
-
-    // Get active shift to deduct cost
-    const activeShift = await db_service.getActiveShift(section);
-    await db_service.saveSupply(supply, activeShift || undefined);
-
-    setSupplyItems({});
-    setShowSupplyForm(false);
-    loadData();
-  };
-
-  // Debt management (supplement only)
-  const handleDebtTransaction = async () => {
-    if (!debtForm.amount || !debtForm.note) return;
-
-    const amount = parseFloat(debtForm.amount);
-    const transaction: SupplementDebtTransaction = {
-      id: uuidv4(),
-      type: debtForm.type,
-      amount,
-      note: debtForm.note,
-      timestamp: new Date(),
-      createdBy: user?.username || 'Unknown'
-    };
-
-    await db_service.saveSupplementDebtTransaction(transaction);
-
-    // Update total debt
-    const currentDebt = supplementDebt?.amount || 0;
-    const newAmount = debtForm.type === 'debt' 
-      ? currentDebt + amount 
-      : Math.max(0, currentDebt - amount);
-
-    const updatedDebt: SupplementDebt = {
-      amount: newAmount,
-      lastUpdated: new Date(),
-      updatedBy: user?.username || 'Unknown'
-    };
-
-    await db_service.saveSupplementDebt(updatedDebt);
-
-    setDebtForm({ type: 'payment', amount: '', note: '' });
-    setShowDebtForm(false);
-    loadData();
-  };
-
-  const handleDeleteDebtTransaction = async (id: string) => {
-    if (confirm('هل أنت متأكد من حذف هذه المعاملة؟')) {
-      await db_service.deleteSupplementDebtTransaction(id);
-      loadData();
-    }
-  };
-
-  // Month reset functionality with proper foreign key handling
-  const resetMonth = async () => {
-    if (!confirm('هل أنت متأكد من إعادة تعيين الشهر؟ سيتم حذف جميع البيانات وأرشفتها.')) {
+  // Item operations
+  const saveItem = async () => {
+    if (!itemForm.name || !itemForm.sellPrice || !itemForm.costPrice) {
+      setError('يرجى ملء جميع الحقول المطلوبة');
       return;
     }
 
     try {
-      setLoading(true);
-      await db_service.resetMonth(section, user?.username || 'Unknown');
+      setIsLoading(true);
+      
+      const item: Item = {
+        id: editingItem?.id || uuidv4(),
+        name: itemForm.name,
+        sellPrice: parseFloat(itemForm.sellPrice),
+        costPrice: parseFloat(itemForm.costPrice),
+        currentAmount: parseInt(itemForm.currentAmount) || 0,
+        image: itemForm.image || undefined,
+        categoryId: itemForm.categoryId || undefined,
+        section,
+        createdAt: editingItem?.createdAt || new Date(),
+        updatedAt: new Date()
+      };
+
+      await db_service.saveItem(item);
+      
+      // Log the action
+      const log = {
+        id: uuidv4(),
+        actionType: editingItem ? 'item_updated' : 'item_created',
+        itemOrShiftAffected: item.name,
+        changeDetails: editingItem 
+          ? `Updated item: ${item.name}` 
+          : `Created new item: ${item.name}`,
+        timestamp: new Date(),
+        adminName: user?.username || '',
+        section
+      };
+      await db_service.saveAdminLog(log);
+
+      resetItemForm();
+      setShowItemModal(false);
       await loadData();
-      alert('تم إعادة تعيين الشهر بنجاح');
-    } catch (error: any) {
-      console.error('خطأ في إعادة تعيين الشهر:', error);
-      alert(`خطأ في إعادة تعيين الشهر: ${error.message}`);
+    } catch (error) {
+      console.error('خطأ في حفظ المنتج:', error);
+      setError('فشل في حفظ المنتج');
     } finally {
-      setLoading(false);
+      setIsLoading(false);
     }
   };
 
-  // PDF generation
-  const generateShiftsReport = () => {
-    generateShiftsPDF(shifts, section);
+  const deleteItem = async (item: Item) => {
+    if (!confirm(`هل أنت متأكد من حذف المنتج "${item.name}"؟`)) return;
+
+    try {
+      setIsLoading(true);
+      await db_service.deleteItem(item.id);
+      
+      // Log the action
+      const log = {
+        id: uuidv4(),
+        actionType: 'item_deleted',
+        itemOrShiftAffected: item.name,
+        changeDetails: `Deleted item: ${item.name}`,
+        timestamp: new Date(),
+        adminName: user?.username || '',
+        section
+      };
+      await db_service.saveAdminLog(log);
+
+      await loadData();
+    } catch (error) {
+      console.error('خطأ في حذف المنتج:', error);
+      setError('فشل في حذف المنتج');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
-  const generateMonthlyReport = () => {
-    const currentMonth = new Date().toLocaleString('default', { month: 'long', year: 'numeric' });
-    generateMonthlySummaryPDF(shifts, items, section, currentMonth);
+  // Category operations
+  const saveCategory = async () => {
+    if (!categoryForm.name) {
+      setError('يرجى إدخال اسم الفئة');
+      return;
+    }
+
+    try {
+      setIsLoading(true);
+      
+      const category: Category = {
+        id: editingCategory?.id || uuidv4(),
+        name: categoryForm.name,
+        section,
+        createdAt: editingCategory?.createdAt || new Date()
+      };
+
+      await db_service.saveCategory(category);
+      
+      setCategoryForm({ name: '' });
+      setEditingCategory(null);
+      setShowCategoryModal(false);
+      await loadData();
+    } catch (error) {
+      console.error('خطأ في حفظ الفئة:', error);
+      setError('فشل في حفظ الفئة');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
-      </div>
-    );
-  }
+  const deleteCategory = async (category: Category) => {
+    if (!confirm(`هل أنت متأكد من حذف الفئة "${category.name}"؟`)) return;
+
+    try {
+      setIsLoading(true);
+      await db_service.deleteCategory(category.id);
+      await loadData();
+    } catch (error) {
+      console.error('خطأ في حذف الفئة:', error);
+      setError('فشل في حذف الفئة');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Customer operations
+  const saveCustomer = async () => {
+    if (!customerForm.name) {
+      setError('يرجى إدخال اسم العميل');
+      return;
+    }
+
+    try {
+      setIsLoading(true);
+      
+      const customer: Customer = {
+        id: editingCustomer?.id || uuidv4(),
+        name: customerForm.name,
+        section,
+        createdAt: editingCustomer?.createdAt || new Date()
+      };
+
+      await db_service.saveCustomer(customer);
+      
+      setCustomerForm({ name: '' });
+      setEditingCustomer(null);
+      setShowCustomerModal(false);
+      await loadData();
+    } catch (error) {
+      console.error('خطأ في حفظ العميل:', error);
+      setError('فشل في حفظ العميل');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const deleteCustomer = async (customer: Customer) => {
+    if (!confirm(`هل أنت متأكد من حذف العميل "${customer.name}"؟ سيتم حذف جميع مشترياته أيضاً.`)) return;
+
+    try {
+      setIsLoading(true);
+      
+      // Get customer purchases to delete them
+      const purchases = await db_service.getCustomerPurchases(customer.id);
+      for (const purchase of purchases) {
+        await db_service.deleteCustomerPurchase(purchase.id);
+      }
+      
+      await db_service.deleteCustomer(customer.id);
+      await loadData();
+    } catch (error) {
+      console.error('خطأ في حذف العميل:', error);
+      setError('فشل في حذف العميل');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const openCustomerDetails = async (customer: Customer) => {
+    try {
+      setSelectedCustomerDetails(customer);
+      const purchases = await db_service.getCustomerPurchases(customer.id);
+      setCustomerPurchases(purchases);
+      setShowCustomerDetailsModal(true);
+    } catch (error) {
+      console.error('خطأ في تحميل تفاصيل العميل:', error);
+      setError('فشل في تحميل تفاصيل العميل');
+    }
+  };
+
+  // User operations
+  const saveUser = async () => {
+    if (!userForm.username || !userForm.password) {
+      setError('يرجى ملء جميع الحقول');
+      return;
+    }
+
+    try {
+      setIsLoading(true);
+      
+      const newUser: User = {
+        id: editingUser?.id || uuidv4(),
+        username: userForm.username,
+        password: userForm.password,
+        role: userForm.role,
+        createdAt: editingUser?.createdAt || new Date()
+      };
+
+      if (editingUser) {
+        await db_service.updateUser(newUser);
+      } else {
+        await db_service.createUser(newUser);
+      }
+      
+      setUserForm({ username: '', password: '', role: 'normal' });
+      setEditingUser(null);
+      setShowUserModal(false);
+      await loadData();
+    } catch (error) {
+      console.error('خطأ في حفظ المستخدم:', error);
+      setError('فشل في حفظ المستخدم');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const deleteUser = async (userToDelete: User) => {
+    if (!confirm(`هل أنت متأكد من حذف المستخدم "${userToDelete.username}"؟`)) return;
+
+    try {
+      setIsLoading(true);
+      await db_service.deleteUser(userToDelete.id);
+      await loadData();
+    } catch (error) {
+      console.error('خطأ في حذف المستخدم:', error);
+      setError('فشل في حذف المستخدم');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Supply operations
+  const saveSupply = async () => {
+    const supplyItems: Record<string, number> = {};
+    let totalCost = 0;
+    let hasItems = false;
+
+    for (const [itemId, quantityStr] of Object.entries(supplyForm)) {
+      const quantity = parseInt(quantityStr);
+      if (quantity > 0) {
+        supplyItems[itemId] = quantity;
+        hasItems = true;
+        
+        // Calculate cost
+        const item = items.find(i => i.id === itemId);
+        if (item) {
+          totalCost += item.costPrice * quantity;
+        }
+      }
+    }
+
+    if (!hasItems) {
+      setError('يرجى إدخال كمية لمنتج واحد على الأقل');
+      return;
+    }
+
+    try {
+      setIsLoading(true);
+      
+      const supply: Supply = {
+        id: uuidv4(),
+        section,
+        items: supplyItems,
+        totalCost,
+        timestamp: new Date(),
+        createdBy: user?.username || ''
+      };
+
+      // Get active shift to deduct cost
+      const activeShift = await db_service.getActiveShift(section);
+      await db_service.saveSupply(supply, activeShift || undefined);
+
+      // Update item quantities
+      for (const [itemId, quantity] of Object.entries(supplyItems)) {
+        const item = items.find(i => i.id === itemId);
+        if (item) {
+          const updatedItem = {
+            ...item,
+            currentAmount: item.currentAmount + quantity,
+            updatedAt: new Date()
+          };
+          await db_service.saveItem(updatedItem);
+        }
+      }
+
+      setSupplyForm({});
+      setShowSupplyModal(false);
+      await loadData();
+    } catch (error) {
+      console.error('خطأ في حفظ التوريد:', error);
+      setError('فشل في حفظ التوريد');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Debt operations (supplement section only)
+  const saveDebtTransaction = async () => {
+    if (!debtForm.amount || !debtForm.note) {
+      setError('يرجى ملء جميع الحقول');
+      return;
+    }
+
+    try {
+      setIsLoading(true);
+      
+      const amount = parseFloat(debtForm.amount);
+      const transaction: SupplementDebtTransaction = {
+        id: editingDebtTransaction?.id || uuidv4(),
+        type: debtForm.type,
+        amount,
+        note: debtForm.note,
+        timestamp: new Date(),
+        createdBy: user?.username || ''
+      };
+
+      await db_service.saveSupplementDebtTransaction(transaction);
+
+      // Update total debt
+      const currentDebt = supplementDebt?.amount || 0;
+      let newDebtAmount = currentDebt;
+
+      if (editingDebtTransaction) {
+        // Reverse the old transaction
+        if (editingDebtTransaction.type === 'debt') {
+          newDebtAmount -= editingDebtTransaction.amount;
+        } else {
+          newDebtAmount += editingDebtTransaction.amount;
+        }
+      }
+
+      // Apply the new transaction
+      if (transaction.type === 'debt') {
+        newDebtAmount += amount;
+      } else {
+        newDebtAmount -= amount;
+      }
+
+      const updatedDebt: SupplementDebt = {
+        amount: Math.max(0, newDebtAmount),
+        lastUpdated: new Date(),
+        updatedBy: user?.username || ''
+      };
+
+      await db_service.saveSupplementDebt(updatedDebt);
+
+      setDebtForm({ type: 'debt', amount: '', note: '' });
+      setEditingDebtTransaction(null);
+      setShowDebtModal(false);
+      setShowEditDebtTransactionModal(false);
+      await loadData();
+    } catch (error) {
+      console.error('خطأ في حفظ معاملة الدين:', error);
+      setError('فشل في حفظ معاملة الدين');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const deleteDebtTransaction = async (transaction: SupplementDebtTransaction) => {
+    if (!confirm('هل أنت متأكد من حذف هذه المعاملة؟')) return;
+
+    try {
+      setIsLoading(true);
+      
+      await db_service.deleteSupplementDebtTransaction(transaction.id);
+
+      // Update total debt by reversing the transaction
+      const currentDebt = supplementDebt?.amount || 0;
+      let newDebtAmount = currentDebt;
+
+      if (transaction.type === 'debt') {
+        newDebtAmount -= transaction.amount;
+      } else {
+        newDebtAmount += transaction.amount;
+      }
+
+      const updatedDebt: SupplementDebt = {
+        amount: Math.max(0, newDebtAmount),
+        lastUpdated: new Date(),
+        updatedBy: user?.username || ''
+      };
+
+      await db_service.saveSupplementDebt(updatedDebt);
+      await loadData();
+    } catch (error) {
+      console.error('خطأ في حذف معاملة الدين:', error);
+      setError('فشل في حذف معاملة الدين');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const openEditDebtTransaction = (transaction: SupplementDebtTransaction) => {
+    setEditingDebtTransaction(transaction);
+    setDebtForm({
+      type: transaction.type,
+      amount: transaction.amount.toString(),
+      note: transaction.note
+    });
+    setShowEditDebtTransactionModal(true);
+  };
+
+  // Reset month functionality
+  const resetMonth = async () => {
+    if (!confirm('هل أنت متأكد من إعادة تعيين الشهر؟ سيتم أرشفة جميع البيانات الحالية وحذفها.')) return;
+
+    try {
+      setIsLoading(true);
+      await db_service.resetMonth(section, user?.username || '');
+      await loadData();
+    } catch (error) {
+      console.error('خطأ في إعادة تعيين الشهر:', error);
+      setError('فشل في إعادة تعيين الشهر');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Helper functions
+  const resetItemForm = () => {
+    setItemForm({
+      name: '',
+      sellPrice: '',
+      costPrice: '',
+      currentAmount: '',
+      image: '',
+      categoryId: ''
+    });
+    setEditingItem(null);
+  };
+
+  const openEditItem = (item: Item) => {
+    setEditingItem(item);
+    setItemForm({
+      name: item.name,
+      sellPrice: item.sellPrice.toString(),
+      costPrice: item.costPrice.toString(),
+      currentAmount: item.currentAmount.toString(),
+      image: item.image || '',
+      categoryId: item.categoryId || ''
+    });
+    setShowItemModal(true);
+  };
+
+  const openEditCategory = (category: Category) => {
+    setEditingCategory(category);
+    setCategoryForm({ name: category.name });
+    setShowCategoryModal(true);
+  };
+
+  const openEditCustomer = (customer: Customer) => {
+    setEditingCustomer(customer);
+    setCustomerForm({ name: customer.name });
+    setShowCustomerModal(true);
+  };
+
+  const openEditUser = (userToEdit: User) => {
+    setEditingUser(userToEdit);
+    setUserForm({
+      username: userToEdit.username,
+      password: userToEdit.password,
+      role: userToEdit.role
+    });
+    setShowUserModal(true);
+  };
+
+  // Calculate dashboard stats
+  const totalRevenue = shifts.reduce((sum, shift) => 
+    sum + shift.purchases.reduce((purchaseSum, purchase) => 
+      purchaseSum + (purchase.price * purchase.quantity), 0), 0);
+  
+  const totalCost = shifts.reduce((sum, shift) => 
+    sum + shift.purchases.reduce((purchaseSum, purchase) => {
+      const item = items.find(i => i.id === purchase.itemId);
+      return purchaseSum + (item ? item.costPrice * purchase.quantity : 0);
+    }, 0), 0);
+  
+  const totalProfit = totalRevenue - totalCost;
+  const totalCustomerDebt = unpaidPurchases.reduce((sum, purchase) => sum + purchase.totalAmount, 0);
 
   return (
     <div className="space-y-6">
@@ -372,36 +628,53 @@ const AdminView: React.FC<AdminViewProps> = ({ section }) => {
       <div className="bg-white rounded-lg shadow-sm p-6">
         <div className="flex justify-between items-center">
           <h1 className="text-2xl font-bold text-gray-900">
-            إدارة {section === 'store' ? 'البار' : 'المكملات الغذائية'}
+            لوحة تحكم المدير - {section === 'store' ? 'البار' : 'المكملات الغذائية'}
           </h1>
-          <div className="flex space-x-2">
+          <div className="flex space-x-3">
+            <button
+              onClick={() => generateShiftsPDF(shifts, section)}
+              className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg flex items-center space-x-2"
+            >
+              <Download className="h-4 w-4" />
+              <span>تصدير الورديات</span>
+            </button>
             <button
               onClick={resetMonth}
               className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg flex items-center space-x-2"
             >
-              <RotateCcw className="h-4 w-4" />
+              <AlertTriangle className="h-4 w-4" />
               <span>إعادة تعيين الشهر</span>
             </button>
           </div>
         </div>
       </div>
 
-      {/* Tabs */}
+      {/* Error Display */}
+      {error && (
+        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">
+          {error}
+        </div>
+      )}
+
+      {/* Tab Navigation */}
       <div className="bg-white rounded-lg shadow-sm">
         <div className="border-b border-gray-200">
-          <nav className="flex space-x-8 px-6">
+          <nav className="-mb-px flex space-x-8 px-6">
             {[
-              { id: 'inventory', label: 'المخزون', icon: Package },
+              { id: 'dashboard', label: 'لوحة التحكم', icon: BarChart3 },
+              { id: 'items', label: 'المنتجات', icon: Package },
               { id: 'customers', label: 'العملاء', icon: Users },
-              { id: 'shifts', label: 'الورديات', icon: Calendar },
+              { id: 'shifts', label: 'الورديات', icon: FileText },
+              { id: 'supplies', label: 'التوريدات', icon: Upload },
+              { id: 'users', label: 'المستخدمين', icon: Users },
+              { id: 'logs', label: 'سجل الأنشطة', icon: FileText },
               ...(section === 'supplement' ? [{ id: 'debt', label: 'إدارة الديون', icon: DollarSign }] : []),
-              { id: 'reports', label: 'التقارير', icon: FileText },
-              { id: 'logs', label: 'سجل الأنشطة', icon: AlertTriangle }
+              { id: 'archives', label: 'الأرشيف الشهري', icon: FileText }
             ].map(tab => (
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id as any)}
-                className={`flex items-center space-x-2 py-4 px-1 border-b-2 font-medium text-sm ${
+                className={`py-4 px-1 border-b-2 font-medium text-sm flex items-center space-x-2 ${
                   activeTab === tab.id
                     ? 'border-blue-500 text-blue-600'
                     : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
@@ -415,46 +688,95 @@ const AdminView: React.FC<AdminViewProps> = ({ section }) => {
         </div>
 
         <div className="p-6">
-          {/* Inventory Tab */}
-          {activeTab === 'inventory' && (
+          {/* Dashboard Tab */}
+          {activeTab === 'dashboard' && (
+            <div className="space-y-6">
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+                <div className="bg-green-50 p-6 rounded-lg">
+                  <div className="text-2xl font-bold text-green-600">{totalRevenue.toFixed(2)} جنيه</div>
+                  <div className="text-sm text-green-600">إجمالي الإيرادات</div>
+                </div>
+                <div className="bg-red-50 p-6 rounded-lg">
+                  <div className="text-2xl font-bold text-red-600">{totalCost.toFixed(2)} جنيه</div>
+                  <div className="text-sm text-red-600">إجمالي التكاليف</div>
+                </div>
+                <div className="bg-blue-50 p-6 rounded-lg">
+                  <div className="text-2xl font-bold text-blue-600">{totalProfit.toFixed(2)} جنيه</div>
+                  <div className="text-sm text-blue-600">صافي الربح</div>
+                </div>
+                <div className="bg-yellow-50 p-6 rounded-lg">
+                  <div className="text-2xl font-bold text-yellow-600">{totalCustomerDebt.toFixed(2)} جنيه</div>
+                  <div className="text-sm text-yellow-600">ديون العملاء</div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="bg-white border rounded-lg p-6">
+                  <h3 className="text-lg font-semibold mb-4">المنتجات منخفضة المخزون</h3>
+                  <div className="space-y-2">
+                    {items.filter(item => item.currentAmount < 10).map(item => (
+                      <div key={item.id} className="flex justify-between items-center p-2 bg-red-50 rounded">
+                        <span>{item.name}</span>
+                        <span className="text-red-600 font-semibold">{item.currentAmount}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="bg-white border rounded-lg p-6">
+                  <h3 className="text-lg font-semibold mb-4">الورديات النشطة</h3>
+                  <div className="space-y-2">
+                    {shifts.filter(shift => shift.status === 'active').map(shift => (
+                      <div key={shift.id} className="flex justify-between items-center p-2 bg-blue-50 rounded">
+                        <span>{shift.username}</span>
+                        <span className="text-blue-600 font-semibold">{shift.totalAmount.toFixed(2)} جنيه</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Items Tab */}
+          {activeTab === 'items' && (
             <div className="space-y-6">
               <div className="flex justify-between items-center">
-                <h2 className="text-lg font-semibold">إدارة المخزون</h2>
-                <div className="flex space-x-2">
+                <h3 className="text-lg font-semibold">إدارة المنتجات</h3>
+                <div className="flex space-x-3">
                   <button
-                    onClick={() => setShowAddCategory(true)}
+                    onClick={() => setShowCategoryModal(true)}
                     className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg flex items-center space-x-2"
                   >
                     <Plus className="h-4 w-4" />
                     <span>إضافة فئة</span>
                   </button>
                   <button
-                    onClick={() => setShowAddItem(true)}
+                    onClick={() => setShowItemModal(true)}
                     className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg flex items-center space-x-2"
                   >
                     <Plus className="h-4 w-4" />
-                    <span>إضافة عنصر</span>
-                  </button>
-                  <button
-                    onClick={() => setShowSupplyForm(true)}
-                    className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg flex items-center space-x-2"
-                  >
-                    <Package className="h-4 w-4" />
-                    <span>توريد مخزون</span>
+                    <span>إضافة منتج</span>
                   </button>
                 </div>
               </div>
 
               {/* Categories */}
-              <div className="bg-gray-50 rounded-lg p-4">
-                <h3 className="font-medium mb-3">الفئات</h3>
+              <div className="bg-gray-50 p-4 rounded-lg">
+                <h4 className="font-medium mb-3">الفئات</h4>
                 <div className="flex flex-wrap gap-2">
                   {categories.map(category => (
                     <div key={category.id} className="bg-white px-3 py-1 rounded-full flex items-center space-x-2">
                       <span>{category.name}</span>
                       <button
-                        onClick={() => handleDeleteCategory(category.id)}
-                        className="text-red-500 hover:text-red-700"
+                        onClick={() => openEditCategory(category)}
+                        className="text-blue-600 hover:text-blue-800"
+                      >
+                        <Edit className="h-3 w-3" />
+                      </button>
+                      <button
+                        onClick={() => deleteCategory(category)}
+                        className="text-red-600 hover:text-red-800"
                       >
                         <Trash2 className="h-3 w-3" />
                       </button>
@@ -465,73 +787,67 @@ const AdminView: React.FC<AdminViewProps> = ({ section }) => {
 
               {/* Items Table */}
               <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-gray-200">
+                <table className="min-w-full bg-white border border-gray-200">
                   <thead className="bg-gray-50">
                     <tr>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        الاسم
-                      </th>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        سعر البيع
-                      </th>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        سعر التكلفة
-                      </th>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        الكمية الحالية
-                      </th>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        الفئة
-                      </th>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        الإجراءات
-                      </th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">المنتج</th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">الفئة</th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">سعر البيع</th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">سعر التكلفة</th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">المخزون</th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">الإجراءات</th>
                     </tr>
                   </thead>
-                  <tbody className="bg-white divide-y divide-gray-200">
-                    {items.map(item => (
-                      <tr key={item.id}>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                          {item.name}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                          {item.sellPrice} جنيه
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                          {item.costPrice} جنيه
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                          <span className={`px-2 py-1 rounded-full text-xs ${
-                            item.currentAmount <= 5 
-                              ? 'bg-red-100 text-red-800' 
-                              : item.currentAmount <= 10
-                              ? 'bg-yellow-100 text-yellow-800'
-                              : 'bg-green-100 text-green-800'
-                          }`}>
-                            {item.currentAmount}
-                          </span>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                          {categories.find(c => c.id === item.categoryId)?.name || 'غير محدد'}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                          <div className="flex space-x-2">
-                            <button
-                              onClick={() => setEditingItem(item)}
-                              className="text-blue-600 hover:text-blue-900"
-                            >
-                              <Edit className="h-4 w-4" />
-                            </button>
-                            <button
-                              onClick={() => handleDeleteItem(item.id)}
-                              className="text-red-600 hover:text-red-900"
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
+                  <tbody className="divide-y divide-gray-200">
+                    {items.map(item => {
+                      const category = categories.find(c => c.id === item.categoryId);
+                      return (
+                        <tr key={item.id}>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <div className="flex items-center">
+                              {item.image && (
+                                <img src={item.image} alt={item.name} className="h-10 w-10 rounded-full mr-3" />
+                              )}
+                              <div className="text-sm font-medium text-gray-900">{item.name}</div>
+                            </div>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                            {category?.name || 'غير محدد'}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                            {item.sellPrice} جنيه
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                            {item.costPrice} جنيه
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
+                              item.currentAmount < 10 
+                                ? 'bg-red-100 text-red-800' 
+                                : 'bg-green-100 text-green-800'
+                            }`}>
+                              {item.currentAmount}
+                            </span>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                            <div className="flex space-x-2">
+                              <button
+                                onClick={() => openEditItem(item)}
+                                className="text-blue-600 hover:text-blue-900"
+                              >
+                                <Edit className="h-4 w-4" />
+                              </button>
+                              <button
+                                onClick={() => deleteItem(item)}
+                                className="text-red-600 hover:text-red-900"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -542,9 +858,9 @@ const AdminView: React.FC<AdminViewProps> = ({ section }) => {
           {activeTab === 'customers' && (
             <div className="space-y-6">
               <div className="flex justify-between items-center">
-                <h2 className="text-lg font-semibold">إدارة العملاء</h2>
+                <h3 className="text-lg font-semibold">إدارة العملاء</h3>
                 <button
-                  onClick={() => setShowAddCustomer(true)}
+                  onClick={() => setShowCustomerModal(true)}
                   className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg flex items-center space-x-2"
                 >
                   <Plus className="h-4 w-4" />
@@ -553,40 +869,37 @@ const AdminView: React.FC<AdminViewProps> = ({ section }) => {
               </div>
 
               <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-gray-200">
+                <table className="min-w-full bg-white border border-gray-200">
                   <thead className="bg-gray-50">
                     <tr>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        اسم العميل
-                      </th>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        إجمالي الدين
-                      </th>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        تاريخ الإنشاء
-                      </th>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        الإجراءات
-                      </th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">اسم العميل</th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">إجمالي الدين</th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">عدد المشتريات غير المدفوعة</th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">تاريخ الإنشاء</th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">الإجراءات</th>
                     </tr>
                   </thead>
-                  <tbody className="bg-white divide-y divide-gray-200">
+                  <tbody className="divide-y divide-gray-200">
                     {customers.map(customer => {
-                      const customerDebt = customerPurchases
-                        .filter(p => p.customerId === customer.id && !p.isPaid)
-                        .reduce((total, p) => total + p.totalAmount, 0);
+                      const customerDebt = unpaidPurchases
+                        .filter(p => p.customerId === customer.id)
+                        .reduce((sum, p) => sum + p.totalAmount, 0);
+                      const unpaidCount = unpaidPurchases.filter(p => p.customerId === customer.id).length;
 
                       return (
                         <tr key={customer.id}>
                           <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
                             {customer.name}
                           </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                            <span className={`px-2 py-1 rounded-full text-xs ${
-                              customerDebt > 0 ? 'bg-red-100 text-red-800' : 'bg-green-100 text-green-800'
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <span className={`text-sm font-semibold ${
+                              customerDebt > 0 ? 'text-red-600' : 'text-green-600'
                             }`}>
                               {customerDebt.toFixed(2)} جنيه
                             </span>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                            {unpaidCount}
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                             {customer.createdAt.toLocaleDateString('ar-EG')}
@@ -594,20 +907,23 @@ const AdminView: React.FC<AdminViewProps> = ({ section }) => {
                           <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                             <div className="flex space-x-2">
                               <button
-                                onClick={() => handleViewCustomer(customer)}
+                                onClick={() => openCustomerDetails(customer)}
                                 className="text-blue-600 hover:text-blue-900"
+                                title="عرض التفاصيل"
                               >
                                 <Eye className="h-4 w-4" />
                               </button>
                               <button
-                                onClick={() => setEditingCustomer(customer)}
+                                onClick={() => openEditCustomer(customer)}
                                 className="text-green-600 hover:text-green-900"
+                                title="تعديل"
                               >
                                 <Edit className="h-4 w-4" />
                               </button>
                               <button
-                                onClick={() => handleDeleteCustomer(customer.id)}
+                                onClick={() => deleteCustomer(customer)}
                                 className="text-red-600 hover:text-red-900"
+                                title="حذف"
                               >
                                 <Trash2 className="h-4 w-4" />
                               </button>
@@ -625,42 +941,22 @@ const AdminView: React.FC<AdminViewProps> = ({ section }) => {
           {/* Shifts Tab */}
           {activeTab === 'shifts' && (
             <div className="space-y-6">
-              <div className="flex justify-between items-center">
-                <h2 className="text-lg font-semibold">إدارة الورديات</h2>
-                <button
-                  onClick={generateShiftsReport}
-                  className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg flex items-center space-x-2"
-                >
-                  <FileText className="h-4 w-4" />
-                  <span>تصدير تقرير</span>
-                </button>
-              </div>
-
+              <h3 className="text-lg font-semibold">سجل الورديات</h3>
+              
               <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-gray-200">
+                <table className="min-w-full bg-white border border-gray-200">
                   <thead className="bg-gray-50">
                     <tr>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        المستخدم
-                      </th>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        وقت البداية
-                      </th>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        وقت النهاية
-                      </th>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        إجمالي المبيعات
-                      </th>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        الحالة
-                      </th>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        حالة التحقق
-                      </th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">المستخدم</th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">وقت البداية</th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">وقت النهاية</th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">إجمالي النقدية</th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">المصروفات</th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">الحالة</th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">حالة التحقق</th>
                     </tr>
                   </thead>
-                  <tbody className="bg-white divide-y divide-gray-200">
+                  <tbody className="divide-y divide-gray-200">
                     {shifts.map(shift => (
                       <tr key={shift.id}>
                         <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
@@ -672,11 +968,14 @@ const AdminView: React.FC<AdminViewProps> = ({ section }) => {
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                           {shift.endTime ? shift.endTime.toLocaleString('ar-EG') : 'نشط'}
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                           {shift.totalAmount.toFixed(2)} جنيه
                         </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                          {shift.expenses.reduce((sum, e) => sum + e.amount, 0).toFixed(2)} جنيه
+                        </td>
                         <td className="px-6 py-4 whitespace-nowrap">
-                          <span className={`px-2 py-1 rounded-full text-xs ${
+                          <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
                             shift.status === 'active' 
                               ? 'bg-green-100 text-green-800' 
                               : 'bg-gray-100 text-gray-800'
@@ -685,7 +984,7 @@ const AdminView: React.FC<AdminViewProps> = ({ section }) => {
                           </span>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap">
-                          <span className={`px-2 py-1 rounded-full text-xs ${
+                          <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
                             shift.validationStatus === 'balanced' 
                               ? 'bg-green-100 text-green-800' 
                               : 'bg-red-100 text-red-800'
@@ -701,87 +1000,53 @@ const AdminView: React.FC<AdminViewProps> = ({ section }) => {
             </div>
           )}
 
-          {/* Debt Management Tab (Supplement only) */}
-          {activeTab === 'debt' && section === 'supplement' && (
+          {/* Supplies Tab */}
+          {activeTab === 'supplies' && (
             <div className="space-y-6">
               <div className="flex justify-between items-center">
-                <h2 className="text-lg font-semibold">إدارة ديون المكملات الغذائية</h2>
+                <h3 className="text-lg font-semibold">إدارة التوريدات</h3>
                 <button
-                  onClick={() => setShowDebtForm(true)}
+                  onClick={() => setShowSupplyModal(true)}
                   className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg flex items-center space-x-2"
                 >
                   <Plus className="h-4 w-4" />
-                  <span>إضافة معاملة</span>
+                  <span>إضافة توريد</span>
                 </button>
               </div>
 
-              {/* Current Debt */}
-              <div className="bg-blue-50 rounded-lg p-6">
-                <h3 className="text-lg font-semibold text-blue-900 mb-2">إجمالي الدين الحالي</h3>
-                <p className="text-3xl font-bold text-blue-600">
-                  {supplementDebt?.amount.toFixed(2) || '0.00'} جنيه
-                </p>
-                <p className="text-sm text-blue-700 mt-1">
-                  آخر تحديث: {supplementDebt?.lastUpdated.toLocaleString('ar-EG') || 'غير محدد'}
-                </p>
-              </div>
-
-              {/* Transactions */}
               <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-gray-200">
+                <table className="min-w-full bg-white border border-gray-200">
                   <thead className="bg-gray-50">
                     <tr>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        النوع
-                      </th>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        المبلغ
-                      </th>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        الملاحظة
-                      </th>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        التاريخ
-                      </th>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        المستخدم
-                      </th>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        الإجراءات
-                      </th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">التاريخ</th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">المنتجات</th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">إجمالي التكلفة</th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">تم بواسطة</th>
                     </tr>
                   </thead>
-                  <tbody className="bg-white divide-y divide-gray-200">
-                    {debtTransactions.map(transaction => (
-                      <tr key={transaction.id}>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <span className={`px-2 py-1 rounded-full text-xs ${
-                            transaction.type === 'payment' 
-                              ? 'bg-green-100 text-green-800' 
-                              : 'bg-red-100 text-red-800'
-                          }`}>
-                            {transaction.type === 'payment' ? 'دفع' : 'دين'}
-                          </span>
+                  <tbody className="divide-y divide-gray-200">
+                    {supplies.map(supply => (
+                      <tr key={supply.id}>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                          {supply.timestamp.toLocaleString('ar-EG')}
+                        </td>
+                        <td className="px-6 py-4 text-sm text-gray-900">
+                          <div className="space-y-1">
+                            {Object.entries(supply.items).map(([itemId, quantity]) => {
+                              const item = items.find(i => i.id === itemId);
+                              return (
+                                <div key={itemId}>
+                                  {item?.name}: {quantity}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                          {supply.totalCost.toFixed(2)} جنيه
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                          {transaction.amount.toFixed(2)} جنيه
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                          {transaction.note}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                          {transaction.timestamp.toLocaleString('ar-EG')}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                          {transaction.createdBy}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                          <button
-                            onClick={() => handleDeleteDebtTransaction(transaction.id)}
-                            className="text-red-600 hover:text-red-900"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </button>
+                          {supply.createdBy}
                         </td>
                       </tr>
                     ))}
@@ -791,133 +1056,247 @@ const AdminView: React.FC<AdminViewProps> = ({ section }) => {
             </div>
           )}
 
-          {/* Reports Tab */}
-          {activeTab === 'reports' && (
+          {/* Users Tab */}
+          {activeTab === 'users' && (
             <div className="space-y-6">
-              <h2 className="text-lg font-semibold">التقارير والأرشيف</h2>
-              
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div className="bg-white border rounded-lg p-6">
-                  <h3 className="font-semibold mb-4">تقارير الورديات</h3>
-                  <button
-                    onClick={generateShiftsReport}
-                    className="w-full bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg"
-                  >
-                    تصدير تقرير الورديات
-                  </button>
-                </div>
-
-                <div className="bg-white border rounded-lg p-6">
-                  <h3 className="font-semibold mb-4">التقرير الشهري</h3>
-                  <button
-                    onClick={generateMonthlyReport}
-                    className="w-full bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg"
-                  >
-                    تصدير التقرير الشهري
-                  </button>
-                </div>
+              <div className="flex justify-between items-center">
+                <h3 className="text-lg font-semibold">إدارة المستخدمين</h3>
+                <button
+                  onClick={() => setShowUserModal(true)}
+                  className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg flex items-center space-x-2"
+                >
+                  <Plus className="h-4 w-4" />
+                  <span>إضافة مستخدم</span>
+                </button>
               </div>
 
-              {/* Monthly Archives */}
-              <div className="bg-white border rounded-lg p-6">
-                <h3 className="font-semibold mb-4">الأرشيف الشهري</h3>
-                <div className="overflow-x-auto">
-                  <table className="min-w-full divide-y divide-gray-200">
-                    <thead className="bg-gray-50">
-                      <tr>
-                        <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          الشهر
-                        </th>
-                        <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          السنة
-                        </th>
-                        <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          إجمالي الربح
-                        </th>
-                        <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          إجمالي الإيرادات
-                        </th>
-                        <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          عدد الورديات
-                        </th>
-                        <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          تاريخ الأرشفة
-                        </th>
+              <div className="overflow-x-auto">
+                <table className="min-w-full bg-white border border-gray-200">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">اسم المستخدم</th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">الدور</th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">تاريخ الإنشاء</th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">الإجراءات</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-200">
+                    {users.map(userItem => (
+                      <tr key={userItem.id}>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                          {userItem.username}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
+                            userItem.role === 'admin' 
+                              ? 'bg-purple-100 text-purple-800' 
+                              : 'bg-blue-100 text-blue-800'
+                          }`}>
+                            {userItem.role === 'admin' ? 'مدير' : 'مستخدم عادي'}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                          {userItem.createdAt.toLocaleDateString('ar-EG')}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                          <div className="flex space-x-2">
+                            <button
+                              onClick={() => openEditUser(userItem)}
+                              className="text-blue-600 hover:text-blue-900"
+                            >
+                              <Edit className="h-4 w-4" />
+                            </button>
+                            <button
+                              onClick={() => deleteUser(userItem)}
+                              className="text-red-600 hover:text-red-900"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                          </div>
+                        </td>
                       </tr>
-                    </thead>
-                    <tbody className="bg-white divide-y divide-gray-200">
-                      {monthlyArchives.map(archive => (
-                        <tr key={archive.id}>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                            {archive.month}
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                            {archive.year}
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                            {archive.totalProfit.toFixed(2)} جنيه
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                            {archive.totalRevenue.toFixed(2)} جنيه
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                            {archive.shiftsCount}
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                            {archive.archivedAt.toLocaleDateString('ar-EG')}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             </div>
           )}
 
-          {/* Logs Tab */}
+          {/* Admin Logs Tab */}
           {activeTab === 'logs' && (
             <div className="space-y-6">
-              <h2 className="text-lg font-semibold">سجل أنشطة المدراء</h2>
+              <h3 className="text-lg font-semibold">سجل أنشطة المدير</h3>
               
               <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-gray-200">
+                <table className="min-w-full bg-white border border-gray-200">
                   <thead className="bg-gray-50">
                     <tr>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        نوع النشاط
-                      </th>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        العنصر المتأثر
-                      </th>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        تفاصيل التغيير
-                      </th>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        المدير
-                      </th>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        التاريخ
-                      </th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">التاريخ</th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">نوع الإجراء</th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">العنصر المتأثر</th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">تفاصيل التغيير</th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">المدير</th>
                     </tr>
                   </thead>
-                  <tbody className="bg-white divide-y divide-gray-200">
+                  <tbody className="divide-y divide-gray-200">
                     {adminLogs.map(log => (
                       <tr key={log.id}>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                          {log.timestamp.toLocaleString('ar-EG')}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                           {log.actionType}
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                           {log.itemOrShiftAffected}
                         </td>
-                        <td className="px-6 py-4 text-sm text-gray-500 max-w-xs truncate">
+                        <td className="px-6 py-4 text-sm text-gray-900">
                           {log.changeDetails}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                           {log.adminName}
                         </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* Debt Management Tab (Supplement section only) */}
+          {activeTab === 'debt' && section === 'supplement' && (
+            <div className="space-y-6">
+              <div className="flex justify-between items-center">
+                <h3 className="text-lg font-semibold">إدارة ديون المكملات الغذائية</h3>
+                <button
+                  onClick={() => setShowDebtModal(true)}
+                  className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg flex items-center space-x-2"
+                >
+                  <Plus className="h-4 w-4" />
+                  <span>إضافة معاملة</span>
+                </button>
+              </div>
+
+              {/* Current Debt Summary */}
+              <div className="bg-white border rounded-lg p-6">
+                <div className="text-center">
+                  <div className="text-3xl font-bold text-red-600 mb-2">
+                    {supplementDebt?.amount.toFixed(2) || '0.00'} جنيه
+                  </div>
+                  <div className="text-gray-600">إجمالي الدين الحالي</div>
+                  {supplementDebt && (
+                    <div className="text-sm text-gray-500 mt-2">
+                      آخر تحديث: {supplementDebt.lastUpdated.toLocaleString('ar-EG')} بواسطة {supplementDebt.updatedBy}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Debt Transactions */}
+              <div className="overflow-x-auto">
+                <table className="min-w-full bg-white border border-gray-200">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">التاريخ</th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">النوع</th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">المبلغ</th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">الملاحظة</th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">تم بواسطة</th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">الإجراءات</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-200">
+                    {debtTransactions.map(transaction => (
+                      <tr key={transaction.id}>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                          {log.timestamp.toLocaleString('ar-EG')}
+                          {transaction.timestamp.toLocaleString('ar-EG')}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
+                            transaction.type === 'debt' 
+                              ? 'bg-red-100 text-red-800' 
+                              : 'bg-green-100 text-green-800'
+                          }`}>
+                            {transaction.type === 'debt' ? 'دين' : 'دفع'}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                          {transaction.amount.toFixed(2)} جنيه
+                        </td>
+                        <td className="px-6 py-4 text-sm text-gray-900">
+                          {transaction.note}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                          {transaction.createdBy}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                          <div className="flex space-x-2">
+                            <button
+                              onClick={() => openEditDebtTransaction(transaction)}
+                              className="text-blue-600 hover:text-blue-900"
+                              title="تعديل"
+                            >
+                              <Edit className="h-4 w-4" />
+                            </button>
+                            <button
+                              onClick={() => deleteDebtTransaction(transaction)}
+                              className="text-red-600 hover:text-red-900"
+                              title="حذف"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* Monthly Archives Tab */}
+          {activeTab === 'archives' && (
+            <div className="space-y-6">
+              <h3 className="text-lg font-semibold">الأرشيف الشهري</h3>
+              
+              <div className="overflow-x-auto">
+                <table className="min-w-full bg-white border border-gray-200">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">الشهر</th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">السنة</th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">إجمالي الإيرادات</th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">إجمالي التكاليف</th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">صافي الربح</th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">عدد الورديات</th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">تاريخ الأرشفة</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-200">
+                    {monthlyArchives.map(archive => (
+                      <tr key={archive.id}>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                          {archive.month}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                          {archive.year}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                          {archive.totalRevenue.toFixed(2)} جنيه
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                          {archive.totalCost.toFixed(2)} جنيه
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold text-green-600">
+                          {archive.totalProfit.toFixed(2)} جنيه
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                          {archive.shiftsCount}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                          {archive.archivedAt.toLocaleDateString('ar-EG')}
                         </td>
                       </tr>
                     ))}
@@ -929,431 +1308,432 @@ const AdminView: React.FC<AdminViewProps> = ({ section }) => {
         </div>
       </div>
 
-      {/* Modals */}
-      {/* Add Item Modal */}
-      {showAddItem && (
+      {/* Customer Details Modal */}
+      {showCustomerDetailsModal && selectedCustomerDetails && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-full max-w-md">
-            <h3 className="text-lg font-semibold mb-4">إضافة عنصر جديد</h3>
-            <div className="space-y-4">
-              <input
-                type="text"
-                placeholder="اسم العنصر"
-                value={newItem.name}
-                onChange={(e) => setNewItem({ ...newItem, name: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg"
-              />
-              <input
-                type="number"
-                placeholder="سعر البيع"
-                value={newItem.sellPrice}
-                onChange={(e) => setNewItem({ ...newItem, sellPrice: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg"
-              />
-              <input
-                type="number"
-                placeholder="سعر التكلفة"
-                value={newItem.costPrice}
-                onChange={(e) => setNewItem({ ...newItem, costPrice: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg"
-              />
-              <input
-                type="number"
-                placeholder="الكمية الحالية"
-                value={newItem.currentAmount}
-                onChange={(e) => setNewItem({ ...newItem, currentAmount: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg"
-              />
-              <select
-                value={newItem.categoryId}
-                onChange={(e) => setNewItem({ ...newItem, categoryId: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg"
-              >
-                <option value="">اختر الفئة</option>
-                {categories.map(category => (
-                  <option key={category.id} value={category.id}>{category.name}</option>
-                ))}
-              </select>
-            </div>
-            <div className="flex justify-end space-x-2 mt-6">
-              <button
-                onClick={() => setShowAddItem(false)}
-                className="px-4 py-2 text-gray-600 hover:text-gray-800"
-              >
-                إلغاء
-              </button>
-              <button
-                onClick={handleAddItem}
-                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-              >
-                إضافة
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Add Category Modal */}
-      {showAddCategory && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-full max-w-md">
-            <h3 className="text-lg font-semibold mb-4">إضافة فئة جديدة</h3>
-            <input
-              type="text"
-              placeholder="اسم الفئة"
-              value={newCategory.name}
-              onChange={(e) => setNewCategory({ name: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg"
-            />
-            <div className="flex justify-end space-x-2 mt-6">
-              <button
-                onClick={() => setShowAddCategory(false)}
-                className="px-4 py-2 text-gray-600 hover:text-gray-800"
-              >
-                إلغاء
-              </button>
-              <button
-                onClick={handleAddCategory}
-                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-              >
-                إضافة
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Add Customer Modal */}
-      {showAddCustomer && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-full max-w-md">
-            <h3 className="text-lg font-semibold mb-4">إضافة عميل جديد</h3>
-            <input
-              type="text"
-              placeholder="اسم العميل"
-              value={newCustomer.name}
-              onChange={(e) => setNewCustomer({ name: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg"
-            />
-            <div className="flex justify-end space-x-2 mt-6">
-              <button
-                onClick={() => setShowAddCustomer(false)}
-                className="px-4 py-2 text-gray-600 hover:text-gray-800"
-              >
-                إلغاء
-              </button>
-              <button
-                onClick={handleAddCustomer}
-                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-              >
-                إضافة
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Edit Item Modal */}
-      {editingItem && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-full max-w-md">
-            <h3 className="text-lg font-semibold mb-4">تعديل العنصر</h3>
-            <div className="space-y-4">
-              <input
-                type="text"
-                placeholder="اسم العنصر"
-                value={editingItem.name}
-                onChange={(e) => setEditingItem({ ...editingItem, name: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg"
-              />
-              <input
-                type="number"
-                placeholder="سعر البيع"
-                value={editingItem.sellPrice}
-                onChange={(e) => setEditingItem({ ...editingItem, sellPrice: parseFloat(e.target.value) })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg"
-              />
-              <input
-                type="number"
-                placeholder="سعر التكلفة"
-                value={editingItem.costPrice}
-                onChange={(e) => setEditingItem({ ...editingItem, costPrice: parseFloat(e.target.value) })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg"
-              />
-              <input
-                type="number"
-                placeholder="الكمية الحالية"
-                value={editingItem.currentAmount}
-                onChange={(e) => setEditingItem({ ...editingItem, currentAmount: parseInt(e.target.value) })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg"
-              />
-            </div>
-            <div className="flex justify-end space-x-2 mt-6">
-              <button
-                onClick={() => setEditingItem(null)}
-                className="px-4 py-2 text-gray-600 hover:text-gray-800"
-              >
-                إلغاء
-              </button>
-              <button
-                onClick={handleEditItem}
-                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-              >
-                حفظ
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Edit Customer Modal */}
-      {editingCustomer && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-full max-w-md">
-            <h3 className="text-lg font-semibold mb-4">تعديل العميل</h3>
-            <input
-              type="text"
-              placeholder="اسم العميل"
-              value={editingCustomer.name}
-              onChange={(e) => setEditingCustomer({ ...editingCustomer, name: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg"
-            />
-            <div className="flex justify-end space-x-2 mt-6">
-              <button
-                onClick={() => setEditingCustomer(null)}
-                className="px-4 py-2 text-gray-600 hover:text-gray-800"
-              >
-                إلغاء
-              </button>
-              <button
-                onClick={handleEditCustomer}
-                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-              >
-                حفظ
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* View Customer Modal */}
-      {viewingCustomer && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-full max-w-4xl max-h-[80vh] overflow-y-auto">
-            <div className="flex justify-between items-center mb-4">
-              <h3 className="text-lg font-semibold">تفاصيل العميل: {viewingCustomer.name}</h3>
-              <button
-                onClick={() => setViewingCustomer(null)}
-                className="text-gray-500 hover:text-gray-700"
-              >
-                ✕
-              </button>
-            </div>
+          <div className="bg-white rounded-lg p-6 w-full max-w-6xl max-h-[90vh] overflow-y-auto">
+            <h3 className="text-lg font-semibold mb-4">تفاصيل العميل: {selectedCustomerDetails.name}</h3>
             
             <div className="space-y-4">
-              <div className="bg-blue-50 rounded-lg p-4">
-                <h4 className="font-semibold text-blue-900 mb-2">ملخص الدين</h4>
-                <div className="grid grid-cols-3 gap-4">
-                  <div>
-                    <p className="text-sm text-blue-700">إجمالي الدين</p>
-                    <p className="text-xl font-bold text-blue-600">
-                      {selectedCustomerPurchases
-                        .filter(p => !p.isPaid)
-                        .reduce((total, p) => total + p.totalAmount, 0)
-                        .toFixed(2)} جنيه
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-sm text-blue-700">إجمالي التكلفة</p>
-                    <p className="text-xl font-bold text-blue-600">
-                      {selectedCustomerPurchases
-                        .filter(p => !p.isPaid)
-                        .reduce((total, p) => {
-                          return total + p.items.reduce((itemTotal, item) => {
-                            const dbItem = items.find(i => i.id === item.itemId);
-                            return itemTotal + (dbItem ? dbItem.costPrice * item.quantity : 0);
-                          }, 0);
-                        }, 0)
-                        .toFixed(2)} جنيه
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-sm text-blue-700">إجمالي الربح</p>
-                    <p className="text-xl font-bold text-blue-600">
-                      {(selectedCustomerPurchases
-                        .filter(p => !p.isPaid)
-                        .reduce((total, p) => total + p.totalAmount, 0) -
-                        selectedCustomerPurchases
-                        .filter(p => !p.isPaid)
-                        .reduce((total, p) => {
-                          return total + p.items.reduce((itemTotal, item) => {
-                            const dbItem = items.find(i => i.id === item.itemId);
-                            return itemTotal + (dbItem ? dbItem.costPrice * item.quantity : 0);
-                          }, 0);
-                        }, 0))
-                        .toFixed(2)} جنيه
-                    </p>
-                  </div>
-                </div>
-              </div>
+              {customerPurchases.map(purchase => {
+                // Calculate totals for this purchase
+                let totalCost = 0;
+                let totalProfit = 0;
+                
+                purchase.items.forEach(item => {
+                  const itemData = items.find(i => i.id === item.itemId);
+                  if (itemData) {
+                    const itemCost = itemData.costPrice * item.quantity;
+                    const itemRevenue = item.price * item.quantity;
+                    totalCost += itemCost;
+                    totalProfit += (itemRevenue - itemCost);
+                  }
+                });
 
-              <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-gray-200">
-                  <thead className="bg-gray-50">
-                    <tr>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        التاريخ
-                      </th>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        العناصر
-                      </th>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        المبلغ الإجمالي
-                      </th>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        التكلفة الإجمالية
-                      </th>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        الربح الإجمالي
-                      </th>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        الحالة
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody className="bg-white divide-y divide-gray-200">
-                    {selectedCustomerPurchases.map(purchase => {
-                      const totalCost = purchase.items.reduce((total, item) => {
-                        const dbItem = items.find(i => i.id === item.itemId);
-                        return total + (dbItem ? dbItem.costPrice * item.quantity : 0);
-                      }, 0);
-                      const totalProfit = purchase.totalAmount - totalCost;
+                return (
+                  <div key={purchase.id} className="border rounded-lg p-4">
+                    <div className="flex justify-between items-start mb-2">
+                      <div>
+                        <div className="font-medium">المبلغ: {purchase.totalAmount.toFixed(2)} جنيه</div>
+                        <div className="text-sm text-gray-600">
+                          التاريخ: {purchase.timestamp.toLocaleString('ar-EG')}
+                        </div>
+                        <div className="text-sm text-gray-600">
+                          الحالة: {purchase.isPaid ? 'مدفوع' : 'غير مدفوع'}
+                        </div>
+                        <div className="text-sm text-blue-600">
+                          إجمالي التكلفة: {totalCost.toFixed(2)} جنيه
+                        </div>
+                        <div className="text-sm text-green-600">
+                          إجمالي الربح: {totalProfit.toFixed(2)} جنيه
+                        </div>
+                      </div>
+                      <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
+                        purchase.isPaid 
+                          ? 'bg-green-100 text-green-800' 
+                          : 'bg-red-100 text-red-800'
+                      }`}>
+                        {purchase.isPaid ? 'مدفوع' : 'غير مدفوع'}
+                      </span>
+                    </div>
+                    
+                    <div className="mt-2">
+                      <div className="text-sm font-medium text-gray-700 mb-1">المنتجات:</div>
+                      <div className="space-y-1">
+                        {purchase.items.map((item, index) => {
+                          const itemData = items.find(i => i.id === item.itemId);
+                          const itemCost = itemData ? itemData.costPrice * item.quantity : 0;
+                          const itemRevenue = item.price * item.quantity;
+                          const itemProfit = itemRevenue - itemCost;
 
-                      return (
-                        <tr key={purchase.id}>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                            {purchase.timestamp.toLocaleDateString('ar-EG')}
-                          </td>
-                          <td className="px-6 py-4 text-sm text-gray-500">
-                            {purchase.items.map(item => (
-                              <div key={item.itemId}>
-                                {item.name} × {item.quantity}
-                              </div>
-                            ))}
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                            {purchase.totalAmount.toFixed(2)} جنيه
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                            {totalCost.toFixed(2)} جنيه
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                            {totalProfit.toFixed(2)} جنيه
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            <span className={`px-2 py-1 rounded-full text-xs ${
-                              purchase.isPaid 
-                                ? 'bg-green-100 text-green-800' 
-                                : 'bg-red-100 text-red-800'
-                            }`}>
-                              {purchase.isPaid ? 'مدفوع' : 'غير مدفوع'}
-                            </span>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
+                          return (
+                            <div key={index} className="text-sm text-gray-600 grid grid-cols-4 gap-4">
+                              <span>{item.name} × {item.quantity}</span>
+                              <span>الإيراد: {itemRevenue.toFixed(2)} جنيه</span>
+                              <span>التكلفة: {itemCost.toFixed(2)} جنيه</span>
+                              <span>الربح: {itemProfit.toFixed(2)} جنيه</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="flex justify-end space-x-3 mt-6">
+              <button
+                onClick={() => setShowCustomerDetailsModal(false)}
+                className="bg-gray-300 hover:bg-gray-400 text-gray-700 px-4 py-2 rounded-lg"
+              >
+                إغلاق
+              </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Supply Form Modal */}
-      {showSupplyForm && (
+      {/* Item Modal */}
+      {showItemModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-full max-w-2xl">
-            <h3 className="text-lg font-semibold mb-4">توريد مخزون</h3>
+          <div className="bg-white rounded-lg p-6 w-full max-w-md">
+            <h3 className="text-lg font-semibold mb-4">
+              {editingItem ? 'تعديل المنتج' : 'إضافة منتج جديد'}
+            </h3>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">اسم المنتج</label>
+                <input
+                  type="text"
+                  value={itemForm.name}
+                  onChange={(e) => setItemForm({ ...itemForm, name: e.target.value })}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">الفئة</label>
+                <select
+                  value={itemForm.categoryId}
+                  onChange={(e) => setItemForm({ ...itemForm, categoryId: e.target.value })}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                >
+                  <option value="">اختر فئة</option>
+                  {categories.map(category => (
+                    <option key={category.id} value={category.id}>
+                      {category.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">سعر البيع</label>
+                  <input
+                    type="number"
+                    value={itemForm.sellPrice}
+                    onChange={(e) => setItemForm({ ...itemForm, sellPrice: e.target.value })}
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">سعر التكلفة</label>
+                  <input
+                    type="number"
+                    value={itemForm.costPrice}
+                    onChange={(e) => setItemForm({ ...itemForm, costPrice: e.target.value })}
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">الكمية الحالية</label>
+                <input
+                  type="number"
+                  value={itemForm.currentAmount}
+                  onChange={(e) => setItemForm({ ...itemForm, currentAmount: e.target.value })}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">رابط الصورة</label>
+                <input
+                  type="url"
+                  value={itemForm.image}
+                  onChange={(e) => setItemForm({ ...itemForm, image: e.target.value })}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                  placeholder="https://example.com/image.jpg"
+                />
+              </div>
+            </div>
+            <div className="flex space-x-3 mt-6">
+              <button
+                onClick={() => {
+                  setShowItemModal(false);
+                  resetItemForm();
+                }}
+                className="flex-1 bg-gray-300 hover:bg-gray-400 text-gray-700 py-2 rounded-lg"
+              >
+                إلغاء
+              </button>
+              <button
+                onClick={saveItem}
+                disabled={isLoading}
+                className="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-2 rounded-lg disabled:opacity-50"
+              >
+                {isLoading ? 'جاري الحفظ...' : 'حفظ'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Category Modal */}
+      {showCategoryModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-md">
+            <h3 className="text-lg font-semibold mb-4">
+              {editingCategory ? 'تعديل الفئة' : 'إضافة فئة جديدة'}
+            </h3>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">اسم الفئة</label>
+              <input
+                type="text"
+                value={categoryForm.name}
+                onChange={(e) => setCategoryForm({ name: e.target.value })}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2"
+              />
+            </div>
+            <div className="flex space-x-3 mt-6">
+              <button
+                onClick={() => {
+                  setShowCategoryModal(false);
+                  setCategoryForm({ name: '' });
+                  setEditingCategory(null);
+                }}
+                className="flex-1 bg-gray-300 hover:bg-gray-400 text-gray-700 py-2 rounded-lg"
+              >
+                إلغاء
+              </button>
+              <button
+                onClick={saveCategory}
+                disabled={isLoading}
+                className="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-2 rounded-lg disabled:opacity-50"
+              >
+                {isLoading ? 'جاري الحفظ...' : 'حفظ'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Customer Modal */}
+      {showCustomerModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-md">
+            <h3 className="text-lg font-semibold mb-4">
+              {editingCustomer ? 'تعديل العميل' : 'إضافة عميل جديد'}
+            </h3>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">اسم العميل</label>
+              <input
+                type="text"
+                value={customerForm.name}
+                onChange={(e) => setCustomerForm({ name: e.target.value })}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2"
+              />
+            </div>
+            <div className="flex space-x-3 mt-6">
+              <button
+                onClick={() => {
+                  setShowCustomerModal(false);
+                  setCustomerForm({ name: '' });
+                  setEditingCustomer(null);
+                }}
+                className="flex-1 bg-gray-300 hover:bg-gray-400 text-gray-700 py-2 rounded-lg"
+              >
+                إلغاء
+              </button>
+              <button
+                onClick={saveCustomer}
+                disabled={isLoading}
+                className="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-2 rounded-lg disabled:opacity-50"
+              >
+                {isLoading ? 'جاري الحفظ...' : 'حفظ'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Supply Modal */}
+      {showSupplyModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+            <h3 className="text-lg font-semibold mb-4">إضافة توريد جديد</h3>
             <div className="space-y-4">
               {items.map(item => (
-                <div key={item.id} className="flex items-center justify-between p-3 border rounded-lg">
+                <div key={item.id} className="flex justify-between items-center p-3 bg-gray-50 rounded-lg">
                   <div>
-                    <p className="font-medium">{item.name}</p>
-                    <p className="text-sm text-gray-500">سعر التكلفة: {item.costPrice} جنيه</p>
+                    <div className="font-medium">{item.name}</div>
+                    <div className="text-sm text-gray-600">المخزون الحالي: {item.currentAmount}</div>
+                    <div className="text-sm text-gray-600">سعر التكلفة: {item.costPrice} جنيه</div>
                   </div>
                   <input
                     type="number"
-                    placeholder="الكمية"
-                    value={supplyItems[item.id] || ''}
-                    onChange={(e) => setSupplyItems({
-                      ...supplyItems,
-                      [item.id]: parseInt(e.target.value) || 0
+                    value={supplyForm[item.id] || ''}
+                    onChange={(e) => setSupplyForm({
+                      ...supplyForm,
+                      [item.id]: e.target.value
                     })}
-                    className="w-24 px-3 py-2 border border-gray-300 rounded-lg"
+                    className="w-20 border border-gray-300 rounded px-2 py-1 text-center"
+                    placeholder="0"
+                    min="0"
                   />
                 </div>
               ))}
             </div>
-            <div className="flex justify-end space-x-2 mt-6">
+            <div className="flex space-x-3 mt-6">
               <button
-                onClick={() => setShowSupplyForm(false)}
-                className="px-4 py-2 text-gray-600 hover:text-gray-800"
+                onClick={() => {
+                  setShowSupplyModal(false);
+                  setSupplyForm({});
+                }}
+                className="flex-1 bg-gray-300 hover:bg-gray-400 text-gray-700 py-2 rounded-lg"
               >
                 إلغاء
               </button>
               <button
-                onClick={handleAddSupply}
-                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                onClick={saveSupply}
+                disabled={isLoading}
+                className="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-2 rounded-lg disabled:opacity-50"
               >
-                إضافة التوريد
+                {isLoading ? 'جاري الحفظ...' : 'حفظ التوريد'}
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Debt Form Modal */}
-      {showDebtForm && section === 'supplement' && (
+      {/* User Modal */}
+      {showUserModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg p-6 w-full max-w-md">
-            <h3 className="text-lg font-semibold mb-4">إضافة معاملة دين</h3>
+            <h3 className="text-lg font-semibold mb-4">
+              {editingUser ? 'تعديل المستخدم' : 'إضافة مستخدم جديد'}
+            </h3>
             <div className="space-y-4">
-              <select
-                value={debtForm.type}
-                onChange={(e) => setDebtForm({ ...debtForm, type: e.target.value as 'payment' | 'debt' })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg"
-              >
-                <option value="payment">دفع</option>
-                <option value="debt">دين</option>
-              </select>
-              <input
-                type="number"
-                placeholder="المبلغ"
-                value={debtForm.amount}
-                onChange={(e) => setDebtForm({ ...debtForm, amount: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg"
-              />
-              <textarea
-                placeholder="الملاحظة"
-                value={debtForm.note}
-                onChange={(e) => setDebtForm({ ...debtForm, note: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg"
-                rows={3}
-              />
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">اسم المستخدم</label>
+                <input
+                  type="text"
+                  value={userForm.username}
+                  onChange={(e) => setUserForm({ ...userForm, username: e.target.value })}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">كلمة المرور</label>
+                <input
+                  type="password"
+                  value={userForm.password}
+                  onChange={(e) => setUserForm({ ...userForm, password: e.target.value })}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">الدور</label>
+                <select
+                  value={userForm.role}
+                  onChange={(e) => setUserForm({ ...userForm, role: e.target.value as 'normal' | 'admin' })}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                >
+                  <option value="normal">مستخدم عادي</option>
+                  <option value="admin">مدير</option>
+                </select>
+              </div>
             </div>
-            <div className="flex justify-end space-x-2 mt-6">
+            <div className="flex space-x-3 mt-6">
               <button
-                onClick={() => setShowDebtForm(false)}
-                className="px-4 py-2 text-gray-600 hover:text-gray-800"
+                onClick={() => {
+                  setShowUserModal(false);
+                  setUserForm({ username: '', password: '', role: 'normal' });
+                  setEditingUser(null);
+                }}
+                className="flex-1 bg-gray-300 hover:bg-gray-400 text-gray-700 py-2 rounded-lg"
               >
                 إلغاء
               </button>
               <button
-                onClick={handleDebtTransaction}
-                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                onClick={saveUser}
+                disabled={isLoading}
+                className="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-2 rounded-lg disabled:opacity-50"
               >
-                إضافة
+                {isLoading ? 'جاري الحفظ...' : 'حفظ'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Debt Modal */}
+      {(showDebtModal || showEditDebtTransactionModal) && section === 'supplement' && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-md">
+            <h3 className="text-lg font-semibold mb-4">
+              {editingDebtTransaction ? 'تعديل معاملة الدين' : 'إضافة معاملة دين'}
+            </h3>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">نوع المعاملة</label>
+                <select
+                  value={debtForm.type}
+                  onChange={(e) => setDebtForm({ ...debtForm, type: e.target.value as 'payment' | 'debt' })}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                >
+                  <option value="debt">دين (إضافة دين)</option>
+                  <option value="payment">دفع (تقليل الدين)</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">المبلغ (جنيه)</label>
+                <input
+                  type="number"
+                  value={debtForm.amount}
+                  onChange={(e) => setDebtForm({ ...debtForm, amount: e.target.value })}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                  placeholder="0.00"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">الملاحظة</label>
+                <textarea
+                  value={debtForm.note}
+                  onChange={(e) => setDebtForm({ ...debtForm, note: e.target.value })}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2"
+                  rows={3}
+                  placeholder="أدخل تفاصيل المعاملة..."
+                />
+              </div>
+            </div>
+            <div className="flex space-x-3 mt-6">
+              <button
+                onClick={() => {
+                  setShowDebtModal(false);
+                  setShowEditDebtTransactionModal(false);
+                  setDebtForm({ type: 'debt', amount: '', note: '' });
+                  setEditingDebtTransaction(null);
+                }}
+                className="flex-1 bg-gray-300 hover:bg-gray-400 text-gray-700 py-2 rounded-lg"
+              >
+                إلغاء
+              </button>
+              <button
+                onClick={saveDebtTransaction}
+                disabled={isLoading}
+                className="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-2 rounded-lg disabled:opacity-50"
+              >
+                {isLoading ? 'جاري الحفظ...' : 'حفظ'}
               </button>
             </div>
           </div>
