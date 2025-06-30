@@ -102,7 +102,7 @@ class DatabaseService {
     }
   }
 
-  // Reset month functionality
+  // Reset month functionality with proper foreign key handling
   async resetMonth(section: 'store' | 'supplement', adminName: string): Promise<void> {
     try {
       // Get all shifts for the current month
@@ -165,7 +165,15 @@ class DatabaseService {
 
       // Delete records in the correct order to respect foreign key constraints
       
-      // 1. Delete customer purchases first (they reference shifts)
+      // 1. Delete shift edits first (they reference shifts)
+      const { error: deleteShiftEditsError } = await supabase
+        .from('shift_edits')
+        .delete()
+        .in('shift_id', shifts.map(s => s.id));
+
+      if (deleteShiftEditsError) throw deleteShiftEditsError;
+
+      // 2. Delete customer purchases (they reference shifts)
       const { error: deletePurchasesError } = await supabase
         .from('customer_purchases')
         .delete()
@@ -173,7 +181,7 @@ class DatabaseService {
 
       if (deletePurchasesError) throw deletePurchasesError;
 
-      // 2. Delete expenses (they reference shifts)
+      // 3. Delete expenses (they reference shifts)
       const { error: deleteExpensesError } = await supabase
         .from('expenses')
         .delete()
@@ -181,7 +189,7 @@ class DatabaseService {
 
       if (deleteExpensesError) throw deleteExpensesError;
 
-      // 3. Delete external money (they reference shifts)
+      // 4. Delete external money (they reference shifts)
       const { error: deleteExternalError } = await supabase
         .from('external_money')
         .delete()
@@ -189,7 +197,7 @@ class DatabaseService {
 
       if (deleteExternalError) throw deleteExternalError;
 
-      // 4. Finally delete shifts (now that all references are removed)
+      // 5. Finally delete shifts (now that all references are removed)
       const { error: deleteShiftsError } = await supabase
         .from('shifts')
         .delete()
@@ -567,6 +575,7 @@ class DatabaseService {
         this.broadcastUpdate('CUSTOMER_UPDATED', { type: 'customer_deleted', id }, customer.section);
       }
     } catch (error) {
+      
       this.handleError(error, 'deleteCustomer');
     }
   }
